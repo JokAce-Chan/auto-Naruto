@@ -1,0 +1,327 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>替身计时器 · 主界面原型</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:"Microsoft YaHei","Segoe UI",sans-serif;
+    background:#0e1013; color:#e6e8ec;
+    display:flex; align-items:center; justify-content:center;
+    min-height:100vh; padding:24px;
+  }
+  .win {
+    width:1240px; background:#14161a; border:1px solid #2a2f38;
+    border-radius:10px; overflow:hidden; box-shadow:0 18px 60px rgba(0,0,0,.6);
+  }
+  /* ── 标题栏 ── */
+  .titlebar {
+    display:flex; align-items:center; gap:12px;
+    padding:10px 14px; background:#1a1d23; border-bottom:1px solid #2a2f38;
+    user-select:none;
+  }
+  .titlebar .logo { width:22px;height:22px;border-radius:6px; background:linear-gradient(135deg,#4da3ff,#2ecc71); display:flex;align-items:center;justify-content:center;font-size:13px; }
+  .titlebar .appname { font-size:14px; font-weight:600; }
+  .titlebar .ver { color:#6b7480; font-size:11px; }
+  .titlebar .spacer { flex:1; }
+  .winbtns span { display:inline-block; width:34px; text-align:center; color:#9aa3b0; font-size:13px; cursor:default; }
+  .winbtns span.close { color:#ff5c5c; }
+  /* ── 工具栏 ── */
+  .toolbar {
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:10px 14px; background:#16191e; border-bottom:1px solid #2a2f38;
+  }
+  .dev {
+    display:flex; align-items:center; gap:8px; background:#1d2128;
+    border:1px solid #2a2f38; border-radius:8px; padding:6px 12px; font-size:12px;
+  }
+  .dot { width:9px; height:9px; border-radius:50%; background:#2ecc71; box-shadow:0 0 8px #2ecc71; }
+  .dot.off { background:#6b7480; box-shadow:none; }
+  .dev .serial { color:#9aa3b0; font-family:Consolas,monospace; }
+  .btn {
+    background:#242933; color:#dde2ea; border:1px solid #343b47;
+    border-radius:8px; padding:6px 14px; font-size:12px; cursor:pointer;
+  }
+  .btn:hover { background:#2c333f; }
+  .btn.primary { background:#2e6fd0; border-color:#3a83e8; }
+  .btn.primary:hover { background:#3a83e8; }
+  .btn.warn { color:#ffb86b; }
+  .toolbar .spacer { flex:1; }
+  .toggle { display:flex; align-items:center; gap:6px; font-size:12px; color:#9aa3b0; }
+  .switch { width:34px; height:18px; border-radius:10px; background:#2ecc71; position:relative; }
+  .switch::after { content:""; position:absolute; top:2px; right:2px; width:14px; height:14px; border-radius:50%; background:#fff; }
+  .switch.off { background:#3a4048; }
+  .switch.off::after { right:auto; left:2px; }
+  /* ── 主体 ── */
+  .main { display:flex; min-height:520px; }
+  /* 预览区 */
+  .preview {
+    flex:1.55; padding:14px; border-right:1px solid #2a2f38;
+    display:flex; flex-direction:column; gap:10px; min-width:0;
+  }
+  .preview .panelhead { display:flex; align-items:center; gap:8px; font-size:12px; color:#9aa3b0; }
+  .preview .panelhead b { color:#e6e8ec; }
+  .screen {
+    position:relative; flex:1; border-radius:8px; overflow:hidden;
+    background:linear-gradient(180deg,#0d1b2e 0%,#10233c 55%,#0a1420 100%);
+    border:1px solid #2a3b52; min-height:380px;
+  }
+  /* 模拟游戏画面顶部 */
+  .game-top { position:absolute; top:0; left:0; right:0; height:120px;
+    background:linear-gradient(180deg,#0f2b4a,#10233c 80%,transparent); }
+  .sixty { position:absolute; top:14px; left:50%; transform:translateX(-50%);
+    font-family:Consolas,monospace; font-size:26px; font-weight:700; color:#ffd76b;
+    text-shadow:0 0 12px rgba(255,215,107,.8); }
+  .sixty small { font-size:12px; color:#9fb4cc; display:block; text-align:center; }
+  .row { position:absolute; top:52px; display:flex; gap:8px; }
+  .row.left { left:120px; }
+  .row.right { right:120px; }
+  .dia { width:22px; height:22px; transform:rotate(45deg); border-radius:3px; }
+  .dia.bright { background:#38b6ff; box-shadow:0 0 10px rgba(56,182,255,.9); border:1px solid #9fdcff; }
+  .dia.bright.orange { background:#ff8a3d; box-shadow:0 0 10px rgba(255,138,61,.9); border:1px solid #ffc9a1; }
+  .dia.dark { background:#0b1424; border:1px solid #1c3a5e; box-shadow:inset 0 0 6px rgba(0,0,0,.8); }
+  /* 识别区框 */
+  .roi { position:absolute; border:2px dashed; border-radius:8px; padding:8px 10px; }
+  .roi.left { left:96px; top:34px; border-color:#2ecc71; }
+  .roi.right { right:96px; top:34px; border-color:#ff5c5c; }
+  .roi .tag {
+    position:absolute; top:-20px; font-size:11px; padding:2px 8px; border-radius:4px; color:#fff;
+  }
+  .roi.left .tag { left:0; background:#1f7a4d; }
+  .roi.right .tag { right:0; background:#a03a3a; }
+  .roi .vals { margin-top:2px; display:flex; gap:10px; font-size:11px; color:#9fb4cc; font-family:Consolas,monospace; }
+  /* 置顶框示例 */
+  .overlay-demo {
+    position:absolute; right:18px; top:150px;
+    background:rgba(255,255,255,.55); border:1px solid rgba(255,255,255,.8);
+    border-radius:10px; padding:8px 16px; font-family:Consolas,monospace;
+    font-size:26px; font-weight:700; letter-spacing:2px; text-align:center;
+    box-shadow:0 6px 20px rgba(0,0,0,.45); cursor:move;
+  }
+  .overlay-demo .n1 { color:#1f9d55; }
+  .overlay-demo .n2 { color:#e03e3e; }
+  .overlay-demo .lbl { display:block; font-size:10px; color:#666; font-family:"Microsoft YaHei"; letter-spacing:0; margin-bottom:2px; }
+  .hint { position:absolute; left:14px; bottom:10px; font-size:11px; color:#5f7a99; }
+  /* 预览关闭遮罩 */
+  .preview-off {
+    position:absolute; inset:0; background:#0b0e12ee; display:none;
+    align-items:center; justify-content:center; flex-direction:column; gap:8px;
+    color:#9aa3b0; font-size:14px;
+  }
+  .preview-off .big { color:#e6e8ec; font-size:16px; font-weight:600; }
+  /* 右侧面板 */
+  .side { width:400px; min-width:400px; display:flex; flex-direction:column; gap:10px; padding:14px; overflow-y:auto; }
+  .card { background:#1b1f26; border:1px solid #2a2f38; border-radius:10px; padding:12px 14px; }
+  .card h3 { font-size:12px; color:#9aa3b0; font-weight:600; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+  .card h3::before { content:""; width:3px; height:12px; border-radius:2px; background:#4da3ff; }
+  .recrow { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px dashed #2a2f38; }
+  .recrow:first-of-type { border-top:none; }
+  .recrow .side-tag { width:34px; height:22px; border-radius:5px; text-align:center; line-height:22px; font-size:12px; font-weight:700; color:#fff; }
+  .recrow.left .side-tag { background:#1f7a4d; }
+  .recrow.right .side-tag { background:#a03a3a; }
+  .recrow .cells { display:flex; gap:4px; }
+  .recrow .mini { width:10px; height:10px; transform:rotate(45deg); border-radius:2px; }
+  .recrow .mini.bright { background:#38b6ff; }
+  .recrow .mini.dark { background:#12233c; border:1px solid #1c3a5e; }
+  .recrow .meta { flex:1; font-size:11px; color:#9aa3b0; }
+  .recrow .meta b { color:#e6e8ec; font-family:Consolas,monospace; font-size:12px; }
+  .badge { font-size:10px; padding:1px 6px; border-radius:4px; background:#2a2f38; color:#9aa3b0; }
+  .badge.load { background:#7a5a1e; color:#ffd76b; }
+  .badge.cd { background:#1f4d7a; color:#7ec3ff; }
+  /* 设置行 */
+  .setrow { display:flex; align-items:center; gap:10px; padding:6px 0; font-size:12px; }
+  .setrow label { width:84px; color:#9aa3b0; }
+  .setrow .val { font-family:Consolas,monospace; color:#e6e8ec; width:52px; }
+  input[type=range] { flex:1; accent-color:#4da3ff; }
+  .sw { width:20px; height:20px; border-radius:5px; border:1px solid #3a4048; display:inline-block; }
+  .sw.green { background:#2ecc71; }
+  .sw.red { background:#ff5c5c; }
+  .sw.blue { background:#38b6ff; }
+  .sw.dark { background:#0b1424; }
+  .sw.orange { background:#ff8a3d; }
+  /* 阈值 */
+  .thr { display:flex; gap:10px; }
+  .thr .box { flex:1; background:#14161a; border:1px solid #2a2f38; border-radius:8px; padding:8px 10px; font-size:11px; }
+  .thr .box b { display:block; margin-bottom:6px; font-size:12px; }
+  .thr .box .rg { color:#9aa3b0; font-family:Consolas,monospace; font-size:10px; line-height:1.7; }
+  /* 状态栏 */
+  .statusbar {
+    display:flex; align-items:center; gap:16px; padding:8px 14px;
+    background:#16191e; border-top:1px solid #2a2f38; font-size:11px; color:#9aa3b0;
+  }
+  .statusbar .ok { color:#2ecc71; }
+  .statusbar .mono { font-family:Consolas,monospace; }
+  .statusbar .spacer { flex:1; }
+  .log { color:#7ec3ff; font-family:Consolas,monospace; }
+</style>
+</head>
+<body>
+<div class="win">
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="logo">◆</div>
+    <div class="appname">替身计时器</div>
+    <div class="ver">NaruttoTimer v0.1 · 原型稿</div>
+    <div class="spacer"></div>
+    <div class="winbtns"><span>—</span><span>□</span><span class="close">✕</span></div>
+  </div>
+
+  <!-- 工具栏 -->
+  <div class="toolbar">
+    <div class="dev"><span class="dot"></span><span>雷电模拟器</span><span class="serial">emulator-7834</span></div>
+    <button class="btn" id="btnConnect">刷新设备</button>
+    <div class="spacer"></div>
+    <div class="toggle"><span>实时预览</span><div class="switch" id="previewSwitch"></div></div>
+    <button class="btn" id="btnCalib">取色校准</button>
+    <button class="btn" id="btnRoi">重新框选区域</button>
+    <button class="btn primary">保存配置</button>
+  </div>
+
+  <!-- 主体 -->
+  <div class="main">
+    <!-- 左：实时预览 -->
+    <div class="preview">
+      <div class="panelhead"><b>实时画面预览</b><span>· 来源：scrcpy 视频流（顶部裁剪 2560×300）</span><span class="badge cd">30 FPS</span></div>
+      <div class="screen" id="screen">
+        <div class="game-top">
+          <div class="sixty">60<small>回合倒计时(参考)</small></div>
+          <!-- 识别区 A（左） -->
+          <div class="roi left" id="roiL">
+            <div class="tag">识别区 A · 左</div>
+            <div class="row left" style="position:static">
+              <div class="dia bright"></div><div class="dia bright"></div><div class="dia bright"></div><div class="dia dark"></div>
+            </div>
+            <div class="vals">值=3/4格 · 倒计时 15.00</div>
+          </div>
+          <!-- 识别区 B（右，对称） -->
+          <div class="roi right" id="roiR">
+            <div class="tag">识别区 B · 右</div>
+            <div class="row right" style="position:static">
+              <div class="dia dark"></div><div class="dia bright"></div><div class="dia bright"></div><div class="dia bright"></div>
+            </div>
+            <div class="vals">值=3/4格 · 倒计时 8.32</div>
+          </div>
+        </div>
+        <!-- 置顶框示例 -->
+        <div class="overlay-demo" id="overlayDemo">
+          <span class="lbl">置顶框示例（可拖动/缩放/锁定）</span>
+          <span class="n1">15.00</span>&nbsp;&nbsp;<span class="n2">8.32</span>
+        </div>
+        <div class="hint">提示：识别区为虚线框；拖动“置顶框示例”可移动，角部可缩放。</div>
+        <!-- 预览关闭遮罩 -->
+        <div class="preview-off" id="previewOff">
+          <div class="big">预览已关闭</div>
+          <div>识别仍在运行，画面仅停止显示，降低占用</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：信息与控制 -->
+    <div class="side">
+      <div class="card">
+        <h3>识别状态</h3>
+        <div class="recrow left">
+          <div class="side-tag">左</div>
+          <div class="cells">
+            <div class="mini bright"></div><div class="mini bright"></div><div class="mini bright"></div><div class="mini dark"></div>
+          </div>
+          <div class="meta">格数 <span class="badge">4</span> · 值 <b>3</b><br>倒计时 <b>15.00</b> <span class="badge cd">倒计时中</span></div>
+        </div>
+        <div class="recrow right">
+          <div class="side-tag">右</div>
+          <div class="cells">
+            <div class="mini dark"></div><div class="mini bright"></div><div class="mini bright"></div><div class="mini bright"></div>
+          </div>
+          <div class="meta">格数 <span class="badge">4</span> · 值 <b>3</b><br>倒计时 <b>8.32</b> <span class="badge cd">倒计时中</span></div>
+        </div>
+        <div class="recrow">
+          <div class="side-tag" style="background:#555">L</div>
+          <div class="meta">回合切换检测 <span class="badge load">加载中</span> · 规则：格数变化不触发，加载结束置 0.00</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>置顶框设置</h3>
+        <div class="setrow">
+          <label>位置锁定</label>
+          <div class="switch" id="lockSwitch"></div>
+          <span class="val" id="lockVal">未锁定</span>
+        </div>
+        <div class="setrow">
+          <label>背景透明度</label>
+          <input type="range" min="10" max="90" value="55" id="opacity">
+          <span class="val" id="opacityVal">55%</span>
+        </div>
+        <div class="setrow">
+          <label>数字颜色</label>
+          <span class="sw green"></span><span>左</span>
+          <span class="sw red" style="margin-left:14px"></span><span>右</span>
+          <button class="btn" style="margin-left:auto;padding:3px 10px">自选</button>
+        </div>
+        <div class="setrow">
+          <label>显示格式</label>
+          <span class="mono" style="font-family:Consolas,monospace;color:#e6e8ec">0.00&nbsp;&nbsp;&nbsp;&nbsp;0.00</span>
+          <span style="color:#6b7480">无括号 · 随框缩放</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>亮 / 暗颜色阈值（可采样优化）</h3>
+        <div class="thr">
+          <div class="box">
+            <b><span class="sw blue" style="width:12px;height:12px"></span> 亮</b>
+            <div class="rg">天蓝 RGB(56,182,255)<br>橙红 RGB(255,138,61)<br>范围：待采集优化</div>
+          </div>
+          <div class="box">
+            <b><span class="sw dark" style="width:12px;height:12px"></span> 暗</b>
+            <div class="rg">深蓝黑 RGB(11,20,36)<br>范围：待采集优化</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>区域配置</h3>
+        <div class="setrow"><label>区域A（左）</label><span class="mono" style="font-family:Consolas,monospace">x:96 y:34 w:180 h:52 · 锚点：外侧</span></div>
+        <div class="setrow"><label>区域B（右）</label><span class="mono" style="font-family:Consolas,monospace">x:1844 y:34 w:180 h:52 · 锚点：外侧</span></div>
+        <div class="setrow"><label>格数模式</label><span class="badge cd">自动（4↔6）</span><span style="color:#6b7480">6格时向屏幕中心延伸</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 状态栏 -->
+  <div class="statusbar">
+    <span class="ok">● 识别运行中</span>
+    <span class="mono">FPS 30</span>
+    <span class="mono">视频流 H.264 · 2560×300</span>
+    <span class="spacer"></span>
+    <span class="log">[12:00:01] 左值 4→3 触发，置顶框=15.00</span>
+  </div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  // 预览开关
+  $('previewSwitch').addEventListener('click', function(){
+    this.classList.toggle('off');
+    const off = this.classList.contains('off');
+    $('previewOff').style.display = off ? 'flex' : 'none';
+    $('screen').style.opacity = off ? 0.35 : 1;
+  });
+  // 锁定开关
+  $('lockSwitch').addEventListener('click', function(){
+    this.classList.toggle('off');
+    $('lockVal').textContent = this.classList.contains('off') ? '已锁定' : '未锁定';
+  });
+  // 透明度滑块
+  $('opacity').addEventListener('input', function(){
+    $('opacityVal').textContent = this.value + '%';
+    $('overlayDemo').style.background = 'rgba(255,255,255,' + (this.value/100) + ')';
+  });
+  // 按钮点击反馈
+  ['btnConnect','btnCalib','btnRoi'].forEach(id => {
+    $(id).addEventListener('click', function(){ this.style.opacity = 0.6; setTimeout(()=>this.style.opacity=1,150); });
+  });
+</script>
+</body>
+</html>

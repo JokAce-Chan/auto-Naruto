@@ -1,0 +1,49 @@
+﻿# ── 本项目不提交的本地文件 ─────────────────────────────
+# 本地对话记录（仅本地保留，由用户本人编写）
+QA.txt
+
+# scrcpy 原始下载包与解压目录（正式组件后续放 vendor/scrcpy）
+scrcpy-win64-v4.1.zip
+scrcpy-win64-v4.1/
+
+# 运行数据（识别日志/事件记录/配置缓存，含隐私）
+data/
+config/local*.json
+
+# ── Visual Studio / 构建产物 ───────────────────────────
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+
+# ── NuGet ──────────────────────────────────────────────
+*.nupkg
+*.snupkg
+packages/
+*.nuget.g.props
+*.nuget.g.targets
+
+# ── IDE ────────────────────────────────────────────────
+.idea/
+.vscode/
+*.suo
+
+# ── 日志与临时文件 ─────────────────────────────────────
+*.log
+*.tmp
+*.temp
+
+# ── 视频调试素材（录制帧较大，不入库）──────────────────
+*.mp4
+*.mkv
