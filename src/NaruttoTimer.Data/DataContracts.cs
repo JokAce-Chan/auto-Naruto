@@ -15,6 +15,12 @@ public sealed record RoiConfig(int X, int Y, int Width, int Height);
 /// <summary>应用设置（JSON 持久化）。</summary>
 public sealed class AppSettings
 {
+    /// <summary>Default left ROI (region A) for the 1280x150 recognition frame; auto-filled.</summary>
+    public static RoiConfig DefaultLeftRoi { get; } = new(125, 65, 130, 45);
+
+    /// <summary>Default right ROI (region B) for the 1280x150 recognition frame; auto-filled.</summary>
+    public static RoiConfig DefaultRightRoi { get; } = new(1070, 60, 110, 45);
+
     public string DeviceSerial { get; set; } = "emulator-7834";
     public string ScrcpyPath { get; set; } = "";
     public string AdbPath { get; set; } = "";
@@ -22,8 +28,8 @@ public sealed class AppSettings
     public int VideoHeight { get; set; } = 720;
     public int CropTopRows { get; set; } = 150;
     public int MaxFps { get; set; } = 30;
-    public RoiConfig? LeftRoi { get; set; }
-    public RoiConfig? RightRoi { get; set; }
+    public RoiConfig? LeftRoi { get; set; } = DefaultLeftRoi;
+    public RoiConfig? RightRoi { get; set; } = DefaultRightRoi;
     public double CountdownSeconds { get; set; } = 15.0;
     public double LoadingSeconds { get; set; } = 0.3;
     public int DebounceFrames { get; set; } = 2;

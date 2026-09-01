@@ -1,4 +1,4 @@
-﻿using NaruttoTimer.Data;
+using NaruttoTimer.Data;
 
 namespace NaruttoTimer.Tests;
 
@@ -78,5 +78,20 @@ public static class SettingsTests
         {
             if (File.Exists(path)) File.Delete(path);
         }
+    }
+
+    [Fact]
+    public static void 默认ROI已预置且落在帧内()
+    {
+        var s = new AppSettings();
+        Check.True(s.LeftRoi != null, "默认左区不应为空");
+        Check.True(s.RightRoi != null, "默认右区不应为空");
+        var l = s.LeftRoi!; var r = s.RightRoi!;
+        Check.True(l.X >= 0 && l.X + l.Width <= 1280, "左区X在帧宽内");
+        Check.True(l.Y >= 0 && l.Y + l.Height <= 150, "左区Y在帧高内");
+        Check.True(r.X >= 0 && r.X + r.Width <= 1280, "右区X在帧宽内");
+        Check.True(r.Y >= 0 && r.Y + r.Height <= 150, "右区Y在帧高内");
+        Check.Equal(AppSettings.DefaultLeftRoi, s.LeftRoi, "左区等于默认");
+        Check.Equal(AppSettings.DefaultRightRoi, s.RightRoi, "右区等于默认");
     }
 }

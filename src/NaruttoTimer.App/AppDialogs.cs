@@ -191,8 +191,10 @@ public sealed class RoiDialog : Window
         var btnSave = MakeButton("保存", Save);
         var btnClear = MakeButton("恢复默认", () =>
         {
-            foreach (var tb in new[] { _lx, _ly, _lw, _lh, _rx, _ry, _rw, _rh }) tb.Text = "";
-            _result.Text = "已清空，保存后恢复自动判定";
+            var d = AppSettings.DefaultLeftRoi; var r = AppSettings.DefaultRightRoi;
+            _lx.Text = d.X.ToString(); _ly.Text = d.Y.ToString(); _lw.Text = d.Width.ToString(); _lh.Text = d.Height.ToString();
+            _rx.Text = r.X.ToString(); _ry.Text = r.Y.ToString(); _rw.Text = r.Width.ToString(); _rh.Text = r.Height.ToString();
+            _result.Text = "已填入默认坐标，可 [测试识别] 验证";
         });
         var btnCancel = MakeButton("取消", () => DialogResult = false);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(8) };
