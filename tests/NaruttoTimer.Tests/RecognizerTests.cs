@@ -353,6 +353,84 @@ public static class RecognizerTests
         var r2 = rec.Recognize(MakeFrame(invalid, t0 + TimeSpan.FromMilliseconds(40))).Right;
         Check.Equal(2, r2.Value, "right invalid holds 2");
     }
+    [Fact]
+    public static void Logic1_LeftInvalidPattern_CellsFollowStableValue()
+    {
+        var rec = NewRecognizer(debounce: 2);
+        var t0 = DateTime.UtcNow;
+        var baseCells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var r1 = rec.Recognize(MakeFrame(baseCells, t0)).Left;
+        Check.Equal(2, r1.Value, "baseline=2");
+        var invalid = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var r2 = rec.Recognize(MakeFrame(invalid, t0 + TimeSpan.FromMilliseconds(40))).Left;
+        Check.Equal(2, r2.Value, "invalid holds 2");
+        Check.Equal(CellState.Bright, r2.Cells[0], "snap cell0 bright");
+        Check.Equal(CellState.Bright, r2.Cells[1], "snap cell1 bright");
+        Check.Equal(CellState.Dark, r2.Cells[2], "snap cell2 dark");
+        Check.Equal(CellState.Dark, r2.Cells[3], "snap cell3 dark");
+    }
+
+    [Fact]
+    public static void Logic1_RightInvalidPattern_CellsFollowStableValue()
+    {
+        var rec = NewRecognizerRight(debounce: 2);
+        var t0 = DateTime.UtcNow;
+        var baseCells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(80, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(130, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(180, 45, 14, BrightColor),
+        };
+        var r1 = rec.Recognize(MakeFrame(baseCells, t0)).Right;
+        Check.Equal(2, r1.Value, "baseline=2");
+        var invalid = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var r2 = rec.Recognize(MakeFrame(invalid, t0 + TimeSpan.FromMilliseconds(40))).Right;
+        Check.Equal(2, r2.Value, "invalid holds 2");
+        Check.Equal(CellState.Dark, r2.Cells[0], "snap cell0 dark");
+        Check.Equal(CellState.Dark, r2.Cells[1], "snap cell1 dark");
+        Check.Equal(CellState.Bright, r2.Cells[2], "snap cell2 bright");
+        Check.Equal(CellState.Bright, r2.Cells[3], "snap cell3 bright");
+    }
+
+    [Fact]
+    public static void Logic1_NoBaselineInvalidPattern_AllDark()
+    {
+        var rec = NewRecognizer(debounce: 2);
+        var t0 = DateTime.UtcNow;
+        var invalid = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var r = rec.Recognize(MakeFrame(invalid, t0)).Left;
+        Check.Equal(0, r.Value, "no baseline value=0");
+        Check.Equal(4, r.Cells.Count, "cells count 4");
+        Check.Equal(CellState.Dark, r.Cells[0], "cell0 dark");
+        Check.Equal(CellState.Dark, r.Cells[1], "cell1 dark");
+        Check.Equal(CellState.Dark, r.Cells[2], "cell2 dark");
+        Check.Equal(CellState.Dark, r.Cells[3], "cell3 dark");
+    }
 }
 
 /// <summary>合成帧工厂：在背景上绘制菱形格。</summary>

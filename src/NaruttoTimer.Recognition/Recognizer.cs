@@ -90,11 +90,14 @@ public sealed class Recognizer : IRecognizer
         int continuous = side == Side.Left ? LeadingBright(states) : TrailingBright(states);
         if (continuous != totalBright)
         {
+            // 本帧违反连续规则：不改变值、不累加防抖；预览小点改为“跟随稳定值”，与数值一致、不闪烁。
             st.Pending = null;
             st.PendingCount = 0;
+            var centers = cells.Select(c => c.CenterX).ToList();
             if (st.Stable == null)
-                return new SideRecognition(grid.Value, 0, states, false, cells.Select(c => c.CenterX).ToList());
-            return st.Stable with { Cells = states, Centers = cells.Select(c => c.CenterX).ToList() };
+                return new SideRecognition(grid.Value, 0, SnapStates(cells.Count, 0, side), false, centers);
+            int snapValue = st.Stable.GridCount == grid.Value ? st.Stable.Value : Math.Min(st.Stable.Value, (int)grid.Value);
+            return st.Stable with { Cells = SnapStates(cells.Count, snapValue, side), Centers = centers };
         }
 
         // 合法时值 = 连续亮块长度（左侧前连续 / 右侧后连续）
@@ -134,6 +137,19 @@ public sealed class Recognizer : IRecognizer
         int count = 0;
         while (n >= 0 && cells[n] == CellState.Bright) { n--; count++; }
         return count;
+    }
+
+    /// <summary>按稳定值合成连续亮块图案（左侧前缀 / 右侧后缀），用于预览显示。</summary>
+    private static IReadOnlyList<CellState> SnapStates(int count, int value, Side side)
+    {
+        value = Math.Clamp(value, 0, count);
+        var list = new List<CellState>(count);
+        for (int i = 0; i < count; i++)
+        {
+            bool b = side == Side.Left ? i < value : i >= count - value;
+            list.Add(b ? CellState.Bright : CellState.Dark);
+        }
+        return list;
     }
 
     private SideRecognition MarkUnstable(SideState st, DateTime ts)
