@@ -27,6 +27,16 @@ public static class RecognizerTests
             DebounceFrames: debounce,
             LoadingSeconds: 0.3));
 
+    private static Recognizer NewRecognizerRight(int debounce = 2) =>
+        new(new RecognizerOptions(
+            new ColorRange(180, 255, 120, 255, 120, 255),
+            new ColorRange(0, 90, 70, 165, 85, 180),
+            null,
+            new RoiConfig(10, 10, 220, 70),
+            OrangeRange: new ColorRange(180, 255, 40, 140, 0, 120),
+            DebounceFrames: debounce,
+            LoadingSeconds: 0.3));
+
     private static CapturedFrame MakeFrame(
         IEnumerable<FrameFactory.CellSpec> cells,
         DateTime ts,
@@ -233,6 +243,115 @@ public static class RecognizerTests
         Check.Equal(CellState.Bright, r.Cells[1], "c2 bright");
         Check.Equal(CellState.Dark, r.Cells[2], "c3 dark");
         Check.Equal(CellState.Dark, r.Cells[3], "c4 dark");
+    }
+
+    [Fact]
+    public static void Logic1_LeftInvalidPattern_HoldsStableValue()
+    {
+        var rec = NewRecognizer(debounce: 2);
+        var t0 = DateTime.UtcNow;
+        var baseCells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var r1 = rec.Recognize(MakeFrame(baseCells, t0)).Left;
+        Check.Equal(2, r1.Value, "baseline=2");
+        var invalid = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var r2 = rec.Recognize(MakeFrame(invalid, t0 + TimeSpan.FromMilliseconds(40))).Left;
+        Check.Equal(2, r2.Value, "invalid pattern holds 2");
+        var r3 = rec.Recognize(MakeFrame(invalid, t0 + TimeSpan.FromMilliseconds(80))).Left;
+        Check.Equal(2, r3.Value, "repeated invalid holds 2");
+    }
+
+    [Fact]
+    public static void Logic1_LeftInvalidDoesNotHelpDebounce()
+    {
+        var rec = NewRecognizer(debounce: 2);
+        var t0 = DateTime.UtcNow;
+        var baseCells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        rec.Recognize(MakeFrame(baseCells, t0));
+        var v3 = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var a = rec.Recognize(MakeFrame(v3, t0 + TimeSpan.FromMilliseconds(40))).Left;
+        Check.Equal(2, a.Value, "single v3 not committed");
+        var invalid = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var b = rec.Recognize(MakeFrame(invalid, t0 + TimeSpan.FromMilliseconds(80))).Left;
+        Check.Equal(2, b.Value, "invalid between holds 2");
+        var c = rec.Recognize(MakeFrame(v3, t0 + TimeSpan.FromMilliseconds(120))).Left;
+        Check.Equal(2, c.Value, "needs 2 consecutive");
+        var d = rec.Recognize(MakeFrame(v3, t0 + TimeSpan.FromMilliseconds(160))).Left;
+        Check.Equal(3, d.Value, "after 2 consecutive commits 3");
+    }
+
+    [Fact]
+    public static void Logic1_RightValidSuffix_Value2()
+    {
+        var rec = NewRecognizerRight(debounce: 2);
+        var t0 = DateTime.UtcNow;
+        var cells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(80, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(130, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(180, 45, 14, BrightColor),
+        };
+        rec.Recognize(MakeFrame(cells, t0));
+        var r = rec.Recognize(MakeFrame(cells, t0 + TimeSpan.FromMilliseconds(40))).Right;
+        Check.Equal(GridCount.G4, r.GridCount, "grid=4");
+        Check.Equal(2, r.Value, "right value=2");
+        Check.Equal(CellState.Bright, r.Cells[2], "cell3 bright");
+        Check.Equal(CellState.Bright, r.Cells[3], "cell4 bright");
+    }
+
+    [Fact]
+    public static void Logic1_RightInvalidPattern_HoldsStableValue()
+    {
+        var rec = NewRecognizerRight(debounce: 2);
+        var t0 = DateTime.UtcNow;
+        var baseCells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(80, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(130, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(180, 45, 14, BrightColor),
+        };
+        var r1 = rec.Recognize(MakeFrame(baseCells, t0)).Right;
+        Check.Equal(2, r1.Value, "right baseline=2");
+        var invalid = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var r2 = rec.Recognize(MakeFrame(invalid, t0 + TimeSpan.FromMilliseconds(40))).Right;
+        Check.Equal(2, r2.Value, "right invalid holds 2");
     }
 }
 

@@ -45,8 +45,8 @@ public sealed class Recognizer : IRecognizer
 
     public RecognitionOutput Recognize(CapturedFrame frame)
     {
-        var left = RecognizeSide(frame, _options.LeftRoi, _states[0]);
-        var right = RecognizeSide(frame, _options.RightRoi, _states[1]);
+        var left = RecognizeSide(Side.Left, frame, _options.LeftRoi, _states[0]);
+        var right = RecognizeSide(Side.Right, frame, _options.RightRoi, _states[1]);
         return new RecognitionOutput(left, right);
     }
 
@@ -62,7 +62,7 @@ public sealed class Recognizer : IRecognizer
         _options = options;
     }
 
-    private SideRecognition RecognizeSide(CapturedFrame frame, RoiConfig? roi, SideState st)
+    private SideRecognition RecognizeSide(Side side, CapturedFrame frame, RoiConfig? roi, SideState st)
     {
         if (roi == null)
         {
@@ -82,8 +82,24 @@ public sealed class Recognizer : IRecognizer
         }
 
         st.UnstableSince = null;
-        int value = cells.Count(c => c.State == CellState.Bright);
-        var candidate = new SideRecognition(grid.Value, value, cells.Select(c => c.State).ToList(), false, cells.Select(c => c.CenterX).ToList());
+
+        // 逻辑1：亮格必须连成一块。左侧从最左连续（◆◇◇◇ / ◆◆◇◇），右侧从最右连续（◇◇◇◆ / ◇◇◆◆）。
+        // 违反此规则的读取视为噪声，不提交、不累加防抖，保持上一稳定值，避免背景/阈值波动导致 G 值跳变。
+        var states = cells.Select(c => c.State).ToList();
+        int totalBright = states.Count(s => s == CellState.Bright);
+        int continuous = side == Side.Left ? LeadingBright(states) : TrailingBright(states);
+        if (continuous != totalBright)
+        {
+            st.Pending = null;
+            st.PendingCount = 0;
+            if (st.Stable == null)
+                return new SideRecognition(grid.Value, 0, states, false, cells.Select(c => c.CenterX).ToList());
+            return st.Stable with { Cells = states, Centers = cells.Select(c => c.CenterX).ToList() };
+        }
+
+        // 合法时值 = 连续亮块长度（左侧前连续 / 右侧后连续）
+        int value = totalBright;
+        var candidate = new SideRecognition(grid.Value, value, states, false, cells.Select(c => c.CenterX).ToList());
 
         if (st.Pending != null && st.Pending.GridCount == candidate.GridCount && st.Pending.Value == candidate.Value)
         {
@@ -95,14 +111,29 @@ public sealed class Recognizer : IRecognizer
             st.PendingCount = 1;
         }
 
-        // 防抖确认；首个合理读数立即立为基线（防抖保护的是帧间变化，不是首次获取）
+        // 防抖确认：首个合理读数立即立为基线（防抖保护的是帧间变化，不是首次获取）
         if (st.Stable == null || st.PendingCount >= _options.DebounceFrames)
         {
             st.Stable = candidate;
         }
 
-        // 规则层只消费防抖后的稳定值；当前帧格分类仅用于预览显示
+        // 规则层只消费防抖后的稳定值；当前帧分类仅用于预览显示
         return st.Stable with { Cells = candidate.Cells };
+    }
+
+    private static int LeadingBright(IReadOnlyList<CellState> cells)
+    {
+        int n = 0;
+        while (n < cells.Count && cells[n] == CellState.Bright) n++;
+        return n;
+    }
+
+    private static int TrailingBright(IReadOnlyList<CellState> cells)
+    {
+        int n = cells.Count - 1;
+        int count = 0;
+        while (n >= 0 && cells[n] == CellState.Bright) { n--; count++; }
+        return count;
     }
 
     private SideRecognition MarkUnstable(SideState st, DateTime ts)

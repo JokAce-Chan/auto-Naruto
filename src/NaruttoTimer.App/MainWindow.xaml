@@ -68,7 +68,7 @@
                         <TextBlock Text="预览已关闭·识别照跑" Foreground="#8FA3BC" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <TextBlock x:Name="PreviewPlaceholder" Text="预览区：未连接设备" Foreground="#5F7A99" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    <Border x:Name="PreviewOverlay" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="18"
+                    <Border x:Name="PreviewOverlay" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0"
                             Background="#8CFFFFFF" CornerRadius="10" Padding="14,6" Visibility="Collapsed">
                         <TextBlock x:Name="PreviewOverlayText" Text="0.00    0.00" Foreground="#1F9D55" FontFamily="Consolas" FontSize="20" FontWeight="Bold"/>
                     </Border>
