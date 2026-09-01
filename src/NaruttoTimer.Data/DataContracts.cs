@@ -19,7 +19,7 @@ public sealed class AppSettings
     public static RoiConfig DefaultLeftRoi { get; } = new(112, 66, 132, 48);
 
     /// <summary>Default right ROI (region B) for the 1280x150 recognition frame; auto-filled.</summary>
-    public static RoiConfig DefaultRightRoi { get; } = new(1005, 66, 130, 48);
+    public static RoiConfig DefaultRightRoi { get; } = new(1050, 66, 110, 48);
 
     public string DeviceSerial { get; set; } = "emulator-7834";
     public string ScrcpyPath { get; set; } = "";

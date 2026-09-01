@@ -49,6 +49,11 @@ public partial class MainWindow : Window
         _dataRoot = Path.Combine(AppContext.BaseDirectory, "data");
         _settingsStore = new JsonSettingsStore(Path.Combine(_dataRoot, "settings.json"));
         _settings = _settingsStore.Load();
+        // Guard against stale full-screen ROI saved by older versions: if ROI has no overlap with the recognition frame (1280x150), fall back to default.
+        int frameH = _settings.CropTopRows > 0 && _settings.CropTopRows < _settings.VideoHeight
+            ? _settings.CropTopRows : _settings.VideoHeight;
+        _settings.LeftRoi = SanitizeRoi(_settings.LeftRoi, AppSettings.DefaultLeftRoi, _settings.VideoWidth, frameH);
+        _settings.RightRoi = SanitizeRoi(_settings.RightRoi, AppSettings.DefaultRightRoi, _settings.VideoWidth, frameH);
         _calibrationStore = new CalibrationStore(Path.Combine(_dataRoot, "calibration.json"));
         _dataStore = new DataStore(_dataRoot);
         _logPath = Path.Combine(AppContext.BaseDirectory, "logs", "nt-debug.log");
@@ -70,6 +75,15 @@ public partial class MainWindow : Window
     }
 
     // ── 构建 ──
+
+    private static RoiConfig? SanitizeRoi(RoiConfig? roi, RoiConfig fallback, int frameW, int frameH)
+    {
+        if (roi == null) return fallback;
+        if (roi.Width <= 0 || roi.Height <= 0) return fallback;
+        // If ROI has no overlap with the recognition frame (e.g. stale full-screen Y=470), treat as invalid.
+        bool overlaps = roi.X < frameW && roi.Y < frameH && roi.X + roi.Width > 0 && roi.Y + roi.Height > 0;
+        return overlaps ? roi : fallback;
+    }
 
     private void BuildCore()
     {

@@ -212,6 +212,28 @@ public static class RecognizerTests
         var after = rec.Recognize(MakeFrame(Array.Empty<FrameFactory.CellSpec>(), t0 + TimeSpan.FromMilliseconds(330))).Left;
         Check.False(after.InLoading, "Reset 后重新计时");
     }
+
+    [Fact]
+    public static void RealBlueState_2Bright2Dark_Value2()
+    {
+        var rec = NewRecognizer(debounce: 1);
+        var t0 = DateTime.UtcNow;
+        var cells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, (34, 89, 166)),
+            new FrameFactory.CellSpec(80, 45, 14, (40, 116, 195)),
+            new FrameFactory.CellSpec(130, 45, 14, (18, 110, 120)),
+            new FrameFactory.CellSpec(180, 45, 14, (39, 151, 152)),
+        };
+        rec.Recognize(MakeFrame(cells, t0));
+        var r = rec.Recognize(MakeFrame(cells, t0 + TimeSpan.FromMilliseconds(40))).Left;
+        Check.Equal(GridCount.G4, r.GridCount, "grid=4");
+        Check.Equal(2, r.Value, "value=2");
+        Check.Equal(CellState.Bright, r.Cells[0], "c1 bright");
+        Check.Equal(CellState.Bright, r.Cells[1], "c2 bright");
+        Check.Equal(CellState.Dark, r.Cells[2], "c3 dark");
+        Check.Equal(CellState.Dark, r.Cells[3], "c4 dark");
+    }
 }
 
 /// <summary>合成帧工厂：在背景上绘制菱形格。</summary>

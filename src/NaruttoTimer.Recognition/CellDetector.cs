@@ -149,17 +149,38 @@ public static class CellDetector
         return offset + (int)(csum > 0 ? wsum / csum : (s + e) / 2);
     }
 
-    private static bool IsBright(byte r, byte g, byte b, RecognizerOptions options) =>
-        options.BrightRange.Contains(r, g, b) ||
-        options.EffectiveOrangeRange.Contains(r, g, b);
+    // ── 颜色判定的功能谓词（蓝/橙两族 + 亮度区分亮暗）──
+    // 说明：旧版用固定 RGB 盒，会随“蓝色常态/橙色突变”改变而失效；改用相对色相与亮度判定，
+    // 蓝族（亮蓝核心、暗蓝/深青暗格）与橙/白突变亮格统一覆盖，深灰绿背景一并排除。
 
-    private static bool IsDark(byte r, byte g, byte b, RecognizerOptions options) =>
-        options.DarkRange.Contains(r, g, b);
+    private static bool IsBright(byte r, byte g, byte b, RecognizerOptions options)
+    {
+        // 橙色/白色突变亮格
+        if (options.EffectiveOrangeRange.Contains(r, g, b)) return true;
+        if (r >= 170 && g >= 170 && b >= 160) return true; // 亮蓝核心的白色高光
+        // 蓝族亮核心
+        if (IsBlueFamily(r, g, b) && IsBrightBlue(r, g, b)) return true;
+        return false;
+    }
+
+    private static bool IsDark(byte r, byte g, byte b, RecognizerOptions options)
+    {
+        // 蓝族且非亮核心 → 暗蓝/暗青格
+        return IsBlueFamily(r, g, b) && !IsBrightBlue(r, g, b);
+    }
+
+    /// <summary>蓝/青族：蓝色占优、红色低、亮度高于深色背景；排除绿灰背景与本底。</summary>
+    private static bool IsBlueFamily(byte r, byte g, byte b) =>
+        r <= 100 && b >= 95 && b >= g && (b - r) >= 35;
+
+    /// <summary>亮蓝核心：蓝色突出且亮度高。</summary>
+    private static bool IsBrightBlue(byte r, byte g, byte b) =>
+        b >= 150 && g >= 80 && (b - g) >= 30;
 
     private static CellState ClassifyCluster(CapturedFrame frame, int x0, int x1, int bandTop, int bandBottom,
         int centerX, int spacing, RecognizerOptions options)
     {
-        int halfW = Math.Max(3, spacing / 2);
+        int halfW = Math.Clamp(spacing / 4, 3, 5);
         int sx0 = Math.Max(x0, centerX - halfW);
         int sx1 = Math.Min(x1 - 1, centerX + halfW);
         int bright = 0, dark = 0;
