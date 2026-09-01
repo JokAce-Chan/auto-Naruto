@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <TargetPlatformMoniker>windows,Version=7.0</TargetPlatformMoniker>
+    <TargetPlatformDisplayName>Windows</TargetPlatformDisplayName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NaruttoTimer.Rules\NaruttoTimer.Rules.csproj" />
+  </ItemGroup>
+
+</Project>

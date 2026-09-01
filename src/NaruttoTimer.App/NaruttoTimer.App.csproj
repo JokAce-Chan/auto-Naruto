@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\NaruttoTimer.Capture\NaruttoTimer.Capture.csproj" />
+    <ProjectReference Include="..\NaruttoTimer.Recognition\NaruttoTimer.Recognition.csproj" />
+    <ProjectReference Include="..\NaruttoTimer.Rules\NaruttoTimer.Rules.csproj" />
+    <ProjectReference Include="..\NaruttoTimer.Overlay\NaruttoTimer.Overlay.csproj" />
+    <ProjectReference Include="..\NaruttoTimer.Data\NaruttoTimer.Data.csproj" />
+    <ProjectReference Include="..\NaruttoTimer.Calibration\NaruttoTimer.Calibration.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- 预置 TargetPlatformMoniker，跳过 SDK 对 GetPlatformSDKDisplayName 的调用（沙箱中无法写 LocalAppData） -->
+    <TargetPlatformMoniker>windows,Version=7.0</TargetPlatformMoniker>
+    <TargetPlatformDisplayName>Windows</TargetPlatformDisplayName>
+  </PropertyGroup>
+
+</Project>

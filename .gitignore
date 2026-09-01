@@ -1,4 +1,4 @@
-﻿# ── 本项目不提交的本地文件 ─────────────────────────────
+# ── 本项目不提交的本地文件 ─────────────────────────────
 # 本地对话记录（仅本地保留，由用户本人编写）
 QA.txt
 
@@ -47,3 +47,23 @@ packages/
 # ── 视频调试素材（录制帧较大，不入库）──────────────────
 *.mp4
 *.mkv
+
+# 本地 dotnet 重定向目录（构建缓存）
+.local-redirect/
+.nuget/
+
+# 调试测试产物（录制流/日志）
+*.h264
+*.mkv
+*.mp4
+server-test.log
+scrcpy-*.log
+stdout-test*
+
+# 固定测试样本（可入库）
+!tests/NaruttoTimer.Tests/Assets/
+!tests/NaruttoTimer.Tests/Assets/*.h264
+-
+# 打包产物与随包组件（生成/拷贝，不入库）
+publish/
+vendor/

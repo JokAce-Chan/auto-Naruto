@@ -240,9 +240,8 @@ git pull                      # 拉取远程最新改动（干活前先 pull）
 6. **忘记仓库是公开还是私密**：仓库页面 → **Settings** → 底部 **Danger Zone** → **Change repository visibility** 可切换。
 
 ## 12. 本项目执行进度（2026-08-31）
-已确认：UI=WPF；目标框架 net8.0-windows；按 M1~M6 多项目；连接方式 HTTPS + Token（ghp_xxx 已生成）；GitHub 私密仓库已创建；QA.txt 仅本地保留不入库。
-待执行（见 6.1 与第 7 节）：
-1. 复制仓库 HTTPS 网址
-2. `git init` + 创建 `.gitignore`、`README.md`
-3. `git add . && git commit && git remote add origin <网址> && git push -u origin main`
-4. 之后每完成一个开发阶段（P1~P7）打一次提交，推送保持云端同步
+已确认：UI=WPF；目标框架 net8.0-windows；按 M1~M6 多项目；连接方式 HTTPS + Token；GitHub 私密仓库 JokAce-Chan/auto-Naruto 已创建；QA.txt 仅本地保留不入库。
+已完成（2026-09-01）：
+1. `git init` + `.gitignore`、`README.md` 创建
+2. 首次提交 `f74cc05`，合并远程初始提交后推送成功（`main` 跟踪 `origin/main`）
+后续约定：每完成一个开发阶段（P1~P7）打一次提交，推送保持云端同步。
