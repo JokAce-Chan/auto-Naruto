@@ -1,4 +1,4 @@
-﻿# 替身计时器（NaruttoTimer / auto-Naruto）
+# 替身计时器（NaruttoTimer / auto-Naruto）
 
 配合雷电模拟器游戏使用的"菱形识别 + 15 秒倒计时"工具。
 
@@ -47,6 +47,7 @@ dotnet run --project src/NaruttoTimer.App
 - `DEVELOPMENT_PLAN.md` 开发计划
 - `GITHUB_GUIDE.md` GitHub 从零使用指南
 - `docs/使用说明.md` 最终用户使用说明
+- `docs/识别优化会话记录.md` 识别优化基线（下一轮优化参考）
 
 ## 版本
 v0.1（P1~P7 开发完成，待真机联调）
