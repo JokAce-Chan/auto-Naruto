@@ -16,10 +16,10 @@ public sealed record RoiConfig(int X, int Y, int Width, int Height);
 public sealed class AppSettings
 {
     /// <summary>Default left ROI (region A) for the 1280x150 recognition frame; auto-filled.</summary>
-    public static RoiConfig DefaultLeftRoi { get; } = new(125, 65, 130, 45);
+    public static RoiConfig DefaultLeftRoi { get; } = new(112, 66, 132, 48);
 
     /// <summary>Default right ROI (region B) for the 1280x150 recognition frame; auto-filled.</summary>
-    public static RoiConfig DefaultRightRoi { get; } = new(1070, 60, 110, 45);
+    public static RoiConfig DefaultRightRoi { get; } = new(1005, 66, 130, 48);
 
     public string DeviceSerial { get; set; } = "emulator-7834";
     public string ScrcpyPath { get; set; } = "";
@@ -34,7 +34,7 @@ public sealed class AppSettings
     public double LoadingSeconds { get; set; } = 0.3;
     public int DebounceFrames { get; set; } = 2;
     public ColorRange BrightRange { get; set; } = new(180, 255, 120, 255, 120, 255);
-    public ColorRange DarkRange { get; set; } = new(0, 60, 0, 60, 0, 90);
+    public ColorRange DarkRange { get; set; } = new(0, 90, 70, 165, 85, 180);
     public int OverlayOpacityPercent { get; set; } = 55;
     public string OverlayLeftColor { get; set; } = "#1F9D55";
     public string OverlayRightColor { get; set; } = "#E03E3E";

@@ -8,13 +8,17 @@ namespace NaruttoTimer.Recognition;
 public sealed record DetectedCell(int CenterX, CellState State);
 
 /// <summary>
-/// ROI 内的菱形格检测：列投影聚类（亮/暗/突变色像素）→ 合并 → 逐格颜色归类。
+/// ROI 内的菱形格检测：列投影（亮/暗菱形像素）→ 聚簇 → 按等间距切分发光合并的宽簇 → 逐格分类。
+/// 深蓝/灰蓝背景不再计入暗格，避免整行被当作一格；亮格用亮/橙红判定，暗格用青蓝判定。
 /// 纯函数，便于单元测试。
 /// </summary>
 public static class CellDetector
 {
     /// <summary>最大可接受格数（超出视为噪声，返回空）。</summary>
     public const int MaxCells = 8;
+
+    /// <summary>默认菱形间距（px），用于发光合并时的等距切分。</summary>
+    private const int DefaultSpacing = 21;
 
     public static List<DetectedCell> Detect(CapturedFrame frame, RoiConfig roi, RecognizerOptions options)
     {
@@ -24,14 +28,18 @@ public static class CellDetector
         int y0 = Math.Clamp(roi.Y, 0, frame.Height);
         int x1 = Math.Clamp(roi.X + roi.Width, 0, frame.Width);
         int y1 = Math.Clamp(roi.Y + roi.Height, 0, frame.Height);
-        if (x1 - x0 < 4 || y1 - y0 < 4) return new();
+        if (x1 - x0 < 6 || y1 - y0 < 6) return new();
 
+        // 菱形体带：取 ROI 中间 50% 行（避开血条与下边缘）。
         int bandTop = y0 + (y1 - y0) / 4;
-        int bandBottom = y1 - (y1 - y0) / 4; // 中间 50% 行带
+        int bandBottom = y1 - (y1 - y0) / 4;
         if (bandBottom <= bandTop) bandBottom = bandTop + 1;
+        int bandH = bandBottom - bandTop;
 
         int roiW = x1 - x0;
-        var colScore = new int[roiW];
+        var cell = new int[roiW];
+        var bright = new int[roiW];
+        var dark = new int[roiW];
         for (int y = bandTop; y < bandBottom; y++)
         {
             int rowBase = (y * frame.Width + x0) * 4;
@@ -39,18 +47,19 @@ public static class CellDetector
             {
                 int idx = rowBase + x * 4;
                 byte b = frame.Pixels[idx], g = frame.Pixels[idx + 1], r = frame.Pixels[idx + 2];
-                if (IsCellColor(r, g, b, options)) colScore[x]++;
+                if (IsBright(r, g, b, options)) { bright[x]++; cell[x]++; }
+                else if (IsDark(r, g, b, options)) { dark[x]++; cell[x]++; }
             }
         }
 
-        int threshold = Math.Max(2, (bandBottom - bandTop) / 4);
+        int threshold = Math.Max(2, bandH / 6);
 
-        // 列聚类
+        // 列聚簇
         var clusters = new List<(int Start, int End)>();
         int cStart = -1;
         for (int x = 0; x < roiW; x++)
         {
-            if (colScore[x] >= threshold)
+            if (cell[x] >= threshold)
             {
                 if (cStart < 0) cStart = x;
             }
@@ -62,7 +71,7 @@ public static class CellDetector
         }
         if (cStart >= 0 && roiW - cStart >= 2) clusters.Add((cStart, roiW - 1));
 
-        // 合并间距 ≤3px 的近邻簇（抗噪）
+        // 合并近邻簇（间距 ≤ 3px 抗噪）
         var merged = new List<(int Start, int End)>();
         foreach (var c in clusters)
         {
@@ -71,36 +80,89 @@ public static class CellDetector
             else
                 merged.Add(c);
         }
+        if (merged.Count == 0) return new();
 
-        int minWidth = Math.Max(3, roi.Width / 40);
+        // 估计间距（分离簇的中点间隔中位数）
+        int spacing = EstimateSpacing(merged, cell, threshold);
+        if (spacing < 12) spacing = DefaultSpacing;
+        if (spacing > 34) spacing = DefaultSpacing;
+
+        int minWidth = Math.Max(4, spacing / 3);
+
         var result = new List<DetectedCell>();
         foreach (var (s, e) in merged)
         {
             int width = e - s + 1;
-            if (width < minWidth) continue; // 过滤噪声小簇
+            if (width < minWidth) continue;
 
-            long wsum = 0, csum = 0;
-            for (int x = s; x <= e; x++) { wsum += (long)colScore[x] * x; csum += colScore[x]; }
-            int centerX = x0 + (int)(csum > 0 ? wsum / csum : (s + e) / 2);
+            // 该簇是否由多颗菱形发光合并而成
+            int slots = width >= spacing * 3 / 2 ? (int)Math.Round((double)width / spacing) : 1;
+            if (slots > MaxCells) slots = MaxCells;
 
-            result.Add(new DetectedCell(centerX, ClassifyCluster(frame, x0, x1, bandTop, bandBottom, centerX, s, e, options)));
+            for (int k = 0; k < slots; k++)
+            {
+                int center;
+                if (slots == 1)
+                {
+                    center = WeightedCenter(cell, s, e, x0);
+                }
+                else
+                {
+                    int span = Math.Max(1, e - s);
+                    int cx = s + (int)((double)(2 * k + 1) * span / (2 * slots));
+                    center = x0 + cx;
+                }
+
+                var state = ClassifyCluster(frame, x0, x1, bandTop, bandBottom, center, spacing, options);
+                if (state != CellState.Unknown) result.Add(new DetectedCell(center, state));
+            }
         }
 
-        return result.Count > MaxCells ? new() : result;
+        // 按中心从左到右排序
+        result.Sort((a, b) => a.CenterX.CompareTo(b.CenterX));
+        // 去重（相邻中心过近保留一个）
+        var dedup = new List<DetectedCell>();
+        foreach (var c in result)
+        {
+            if (dedup.Count > 0 && c.CenterX - dedup[^1].CenterX < spacing / 2) continue;
+            dedup.Add(c);
+        }
+
+        return dedup.Count > MaxCells ? new() : dedup;
     }
 
-    private static bool IsCellColor(byte r, byte g, byte b, RecognizerOptions options) =>
+    private static int EstimateSpacing(List<(int Start, int End)> clusters, int[] cell, int threshold)
+    {
+        var centers = new List<int>();
+        foreach (var (s, e) in clusters) centers.Add(WeightedCenter(cell, s, e, 0));
+        if (centers.Count < 2) return DefaultSpacing;
+        var gaps = new List<int>();
+        for (int i = 1; i < centers.Count; i++) gaps.Add(centers[i] - centers[i - 1]);
+        gaps.Sort();
+        return gaps[gaps.Count / 2];
+    }
+
+    private static int WeightedCenter(int[] cell, int s, int e, int offset)
+    {
+        long wsum = 0, csum = 0;
+        for (int x = s; x <= e; x++) { wsum += (long)cell[x] * x; csum += cell[x]; }
+        return offset + (int)(csum > 0 ? wsum / csum : (s + e) / 2);
+    }
+
+    private static bool IsBright(byte r, byte g, byte b, RecognizerOptions options) =>
         options.BrightRange.Contains(r, g, b) ||
-        options.DarkRange.Contains(r, g, b) ||
         options.EffectiveOrangeRange.Contains(r, g, b);
 
+    private static bool IsDark(byte r, byte g, byte b, RecognizerOptions options) =>
+        options.DarkRange.Contains(r, g, b);
+
     private static CellState ClassifyCluster(CapturedFrame frame, int x0, int x1, int bandTop, int bandBottom,
-        int centerX, int clusterStart, int clusterEnd, RecognizerOptions options)
+        int centerX, int spacing, RecognizerOptions options)
     {
-        int halfW = Math.Max(3, (clusterEnd - clusterStart + 1) / 4);
+        int halfW = Math.Max(3, spacing / 2);
         int sx0 = Math.Max(x0, centerX - halfW);
         int sx1 = Math.Min(x1 - 1, centerX + halfW);
-        int bright = 0, dark = 0, orange = 0;
+        int bright = 0, dark = 0;
 
         for (int y = bandTop; y < bandBottom; y++)
         {
@@ -109,16 +171,13 @@ public static class CellDetector
             {
                 int idx = (rowBase + x) * 4;
                 byte b = frame.Pixels[idx], g = frame.Pixels[idx + 1], r = frame.Pixels[idx + 2];
-                if (options.EffectiveOrangeRange.Contains(r, g, b)) orange++;
-                else if (options.BrightRange.Contains(r, g, b)) bright++;
-                else if (options.DarkRange.Contains(r, g, b)) dark++;
+                if (IsBright(r, g, b, options)) bright++;
+                else if (IsDark(r, g, b, options)) dark++;
             }
         }
 
-        int total = bright + dark + orange;
+        int total = bright + dark;
         if (total == 0) return CellState.Unknown;
-        // 突变橙红归入 Bright；否则按亮/暗多数归类
-        if (orange > 0 && orange * 2 >= total) return CellState.Bright;
         return bright >= dark ? CellState.Bright : CellState.Dark;
     }
 }

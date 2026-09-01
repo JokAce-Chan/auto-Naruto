@@ -10,11 +10,11 @@ public static class CellDetectorTests
 {
     private static readonly RecognizerOptions Options = new(
         new ColorRange(180, 255, 120, 255, 120, 255),
-        new ColorRange(0, 60, 0, 60, 0, 90),
-        OrangeRange: new ColorRange(180, 255, 40, 140, 0, 120));
+        new ColorRange(0, 90, 70, 165, 85, 180),
+        OrangeRange: new ColorRange(180, 255, 40, 150, 0, 130));
 
     private static CapturedFrame FrameWith(params FrameFactory.CellSpec[] cells) =>
-        FrameFactory.Create(240, 90, cells, DateTime.UtcNow, (80, 80, 90));
+        FrameFactory.Create(240, 90, cells, DateTime.UtcNow, (30, 50, 62));
 
     [Fact]
     public static void 检测_四亮格_居中分类()
@@ -35,9 +35,9 @@ public static class CellDetectorTests
     {
         var frame = FrameWith(
             new FrameFactory.CellSpec(40, 45, 14, (200, 230, 255)),
-            new FrameFactory.CellSpec(90, 45, 14, (10, 20, 40)),
+            new FrameFactory.CellSpec(90, 45, 14, (20, 110, 125)),
             new FrameFactory.CellSpec(140, 45, 14, (200, 230, 255)),
-            new FrameFactory.CellSpec(190, 45, 14, (10, 20, 40)));
+            new FrameFactory.CellSpec(190, 45, 14, (20, 110, 125)));
         var cells = CellDetector.Detect(frame, new RoiConfig(10, 10, 220, 70), Options);
         Check.Equal(4, cells.Count, "应检测出 4 格");
         Check.Equal(CellState.Bright, cells[0].State, "格1亮");

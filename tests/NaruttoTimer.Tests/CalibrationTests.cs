@@ -96,7 +96,7 @@ public static class CalibrationTests
             var store = new CalibrationStore(Path.Combine(dir, "missing.json"));
             var loaded = store.Load();
             Check.Equal(180, (int)loaded.Bright.RMin, "默认亮 R 下界");
-            Check.Equal(90, (int)loaded.Dark.BMax, "默认暗 B 上界");
+            Check.Equal(180, (int)loaded.Dark.BMax, "默认暗 B 上界");
         }
         finally { TestTemp.Delete(dir); }
     }

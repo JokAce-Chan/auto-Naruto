@@ -15,12 +15,12 @@ public sealed record RecognizerOptions(
     double LoadingSeconds = 0.3)
 {
     /// <summary>值=4 突变橙红默认区间（天蓝亮格之外的警示色，归入 Bright）。</summary>
-    public static ColorRange DefaultOrangeRange { get; } = new(180, 255, 40, 140, 0, 120);
+    public static ColorRange DefaultOrangeRange { get; } = new(180, 255, 40, 150, 0, 130);
 
     public ColorRange EffectiveOrangeRange => OrangeRange ?? DefaultOrangeRange;
 
     public static RecognizerOptions Default(RoiConfig? left = null, RoiConfig? right = null) =>
-        new(new ColorRange(180, 255, 120, 255, 120, 255), new ColorRange(0, 60, 0, 60, 0, 90), left, right);
+        new(new ColorRange(180, 255, 120, 255, 120, 255), new ColorRange(0, 90, 70, 165, 85, 180), left, right);
 }
 
 /// <summary>

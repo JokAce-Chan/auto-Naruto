@@ -358,7 +358,8 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(() =>
         {
             _renderScheduled = false;
-            if (_previewVisible) RenderPreview(frame);
+            var latest = _lastFrame;
+            if (_previewVisible && latest != null) RenderPreview(latest);
         });
     }
 
@@ -548,8 +549,9 @@ public partial class MainWindow : Window
 
     private void Log(string msg)
     {
-        LogText.Text = $"日志：{msg}";
         try { File.AppendAllText(_logPath, $"{DateTime.Now:HH:mm:ss.fff} {msg}{Environment.NewLine}"); } catch { }
+        if (Dispatcher.CheckAccess()) LogText.Text = $"日志：{msg}";
+        else Dispatcher.BeginInvoke(() => LogText.Text = $"日志：{msg}");
     }
 
     private string StderrSuffix()

@@ -77,11 +77,18 @@ public sealed class PipelineController : IDisposable
 
     private void OnFrame(object? sender, CapturedFrame frame)
     {
-        FrameAvailable?.Invoke(frame);
-        var output = _recognizer.Recognize(frame);
-        _engine.Update(Side.Left, new RecognitionReading(output.Left.GridCount, output.Left.Value, output.Left.InLoading));
-        _engine.Update(Side.Right, new RecognitionReading(output.Right.GridCount, output.Right.Value, output.Right.InLoading));
-        RecognitionUpdated?.Invoke(output);
+        try
+        {
+            FrameAvailable?.Invoke(frame);
+            var output = _recognizer.Recognize(frame);
+            _engine.Update(Side.Left, new RecognitionReading(output.Left.GridCount, output.Left.Value, output.Left.InLoading));
+            _engine.Update(Side.Right, new RecognitionReading(output.Right.GridCount, output.Right.Value, output.Right.InLoading));
+            RecognitionUpdated?.Invoke(output);
+        }
+        catch (Exception ex)
+        {
+            Logged?.Invoke($"识别帧异常：{ex.Message}");
+        }
     }
 
     private void OnCountdown(object? sender, CountdownChangedEventArgs e)

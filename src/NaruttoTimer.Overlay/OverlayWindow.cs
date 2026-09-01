@@ -106,7 +106,7 @@ public sealed class OverlayWindow : Window, IOverlayService
     {
         RunOnUi(() =>
         {
-            if (!IsVisible) Show();
+            if (!IsVisible) base.Show();
             Activate();
         });
     }
@@ -115,7 +115,7 @@ public sealed class OverlayWindow : Window, IOverlayService
     {
         RunOnUi(() =>
         {
-            if (IsVisible) Hide();
+            if (IsVisible) base.Hide();
         });
     }
 

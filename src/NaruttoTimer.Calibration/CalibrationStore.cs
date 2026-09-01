@@ -48,7 +48,7 @@ public sealed class CalibrationStore : ICalibrationStore
 
     public static CalibrationResult Default() => new(
         new ColorRange(180, 255, 120, 255, 120, 255),
-        new ColorRange(0, 60, 0, 60, 0, 90));
+        new ColorRange(0, 90, 70, 165, 85, 180));
 
     private static bool IsValid(ColorRange range) =>
         range.RMin <= range.RMax && range.GMin <= range.GMax && range.BMin <= range.BMax;

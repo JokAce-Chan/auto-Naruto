@@ -13,14 +13,14 @@ public static class RecognizerTests
     private static readonly RoiConfig LeftRoi = new(10, 10, 220, 70);
 
     private static readonly (byte R, byte G, byte B) BrightColor = (200, 230, 255);
-    private static readonly (byte R, byte G, byte B) DarkColor = (10, 20, 40);
+    private static readonly (byte R, byte G, byte B) DarkColor = (20, 110, 125);
     private static readonly (byte R, byte G, byte B) OrangeColor = (255, 90, 60);
-    private static readonly (byte R, byte G, byte B) Background = (80, 80, 90);
+    private static readonly (byte R, byte G, byte B) Background = (30, 50, 62);
 
     private static Recognizer NewRecognizer(int debounce = 2) =>
         new(new RecognizerOptions(
             new ColorRange(180, 255, 120, 255, 120, 255),
-            new ColorRange(0, 60, 0, 60, 0, 90),
+            new ColorRange(0, 90, 70, 165, 85, 180),
             LeftRoi,
             null,
             OrangeRange: new ColorRange(180, 255, 40, 140, 0, 120),
@@ -190,7 +190,7 @@ public static class RecognizerTests
     {
         var rec = new Recognizer(new RecognizerOptions(
             new ColorRange(180, 255, 120, 255, 120, 255),
-            new ColorRange(0, 60, 0, 60, 0, 90),
+            new ColorRange(0, 90, 70, 165, 85, 180),
             null, null));
         var t0 = DateTime.UtcNow;
         var r1 = rec.Recognize(MakeFrame(Array.Empty<FrameFactory.CellSpec>(), t0)).Left;

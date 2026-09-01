@@ -16,9 +16,9 @@ public static class PipelineTests
         var capture = new FakeCapture();
         var recognizer = new Recognizer(new RecognizerOptions(
             new ColorRange(180, 255, 120, 255, 120, 255),
-            new ColorRange(0, 60, 0, 60, 0, 90),
+            new ColorRange(0, 90, 70, 165, 85, 180),
             TestRoi, null,
-            OrangeRange: new ColorRange(180, 255, 40, 140, 0, 120),
+            OrangeRange: new ColorRange(180, 255, 40, 150, 0, 130),
             DebounceFrames: 1,
             LoadingSeconds: 0.3));
         var engine = new CountdownEngine(15.0);
@@ -34,9 +34,9 @@ public static class PipelineTests
         for (int i = 0; i < 4; i++)
         {
             specs.Add(new FrameFactory.CellSpec(30 + i * 50, 45, 14,
-                i < brightCount ? ((byte)200, (byte)230, (byte)255) : ((byte)10, (byte)20, (byte)40)));
+                i < brightCount ? ((byte)200, (byte)230, (byte)255) : ((byte)20, (byte)110, (byte)125)));
         }
-        return FrameFactory.Create(240, 90, specs, ts, (80, 80, 90));
+        return FrameFactory.Create(240, 90, specs, ts, (30, 50, 62));
     }
 
     [Fact]
