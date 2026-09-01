@@ -38,6 +38,9 @@ public partial class MainWindow : Window
     private bool _previewVisible = true;
     private GridCount? _lastLeftGrid;
     private GridCount? _lastRightGrid;
+    private readonly string _logPath;
+    private bool _firstFrameLogged;
+    private int _fpsLogCounter;
 
     public MainWindow()
     {
@@ -48,6 +51,9 @@ public partial class MainWindow : Window
         _settings = _settingsStore.Load();
         _calibrationStore = new CalibrationStore(Path.Combine(_dataRoot, "calibration.json"));
         _dataStore = new DataStore(_dataRoot);
+        _logPath = Path.Combine(AppContext.BaseDirectory, "logs", "nt-debug.log");
+        try { Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!); } catch { }
+        Log($"App 启动 {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}");
 
         BuildCore();
 
@@ -72,6 +78,8 @@ public partial class MainWindow : Window
         _capture = new ScreenRecordCaptureSource(
             new CaptureOptions(adbPath, _settings.DeviceSerial, _settings.VideoWidth, _settings.VideoHeight, _settings.CropTopRows, _settings.MaxFps),
             ffDir);
+        _capture.StateChanged += OnCaptureStateRaw;
+        _capture.FrameReady += OnRawFrame;
         _pipeline = new PipelineController(_capture, BuildRecognizer(), new CountdownEngine(_settings.CountdownSeconds), _dataStore);
         SubscribePipeline();
     }
@@ -90,13 +98,15 @@ public partial class MainWindow : Window
     private void SubscribePipeline()
     {
         if (_pipeline == null) return;
-        _pipeline.FrameAvailable += OnFrameAvailable;
         _pipeline.RecognitionUpdated += OnRecognitionUpdated;
         _pipeline.CountdownUpdated += OnCountdownUpdated;
         _pipeline.Triggered += OnTriggered;
-        _pipeline.CaptureStateChanged += OnCaptureStateChanged;
         _pipeline.Logged += OnLogged;
     }
+
+    private void OnCaptureStateRaw(object? sender, CaptureStateChangedEventArgs e) => OnCaptureStateChanged(e.State, e.Message);
+
+    private void OnRawFrame(object? sender, CapturedFrame frame) => OnFrameAvailable(frame);
 
     private void ApplySettingsToUi()
     {
@@ -342,6 +352,7 @@ public partial class MainWindow : Window
     private void OnFrameAvailable(CapturedFrame frame)
     {
         _lastFrame = frame;
+        if (!_firstFrameLogged) { _firstFrameLogged = true; Log($"首帧到达 {frame.Width}x{frame.Height} 序列 {frame.Sequence}"); }
         if (_renderScheduled) return;
         _renderScheduled = true;
         Dispatcher.BeginInvoke(() =>
@@ -392,23 +403,25 @@ public partial class MainWindow : Window
                 case CaptureState.Connecting:
                     DeviceDot.Background = Yellow;
                     SetStatus("● 连接中", Yellow);
+                    Log($"连接中：{message}" + StderrSuffix());
                     break;
                 case CaptureState.Connected:
                     DeviceDot.Background = Green;
                     SetStatus("● 已连接", Green);
                     VideoText.Text = "视频流 H.264";
-                    Log(message ?? "视频流已建立");
+                    Log((message ?? "视频流已建立") + StderrSuffix());
                     break;
                 case CaptureState.Reconnecting:
                     DeviceDot.Background = Yellow;
                     SetStatus("● 重连中", Yellow);
-                    Log($"重连中：{message}");
+                    Log($"重连中：{message}" + StderrSuffix());
                     break;
                 case CaptureState.Disconnected:
                     DeviceDot.Background = Gray;
                     BtnConnect.Content = "连接";
                     SetStatus("● 未连接", Gray);
                     VideoText.Text = "视频流 --";
+                    Log("视频流已断开");
                     break;
             }
         });
@@ -518,6 +531,7 @@ public partial class MainWindow : Window
     {
         _pipeline?.Tick(0.1);
         FpsText.Text = $"FPS {(_capture?.CurrentFps ?? 0):F0}";
+        if (++_fpsLogCounter % 50 == 0 && _capture?.State == CaptureState.Connected) Log($"FPS {(_capture?.CurrentFps ?? 0):F0}");
         if (_pipeline != null)
         {
             _lastSnapshot = _pipeline.Engine.GetSnapshot();
@@ -535,6 +549,13 @@ public partial class MainWindow : Window
     private void Log(string msg)
     {
         LogText.Text = $"日志：{msg}";
+        try { File.AppendAllText(_logPath, $"{DateTime.Now:HH:mm:ss.fff} {msg}{Environment.NewLine}"); } catch { }
+    }
+
+    private string StderrSuffix()
+    {
+        var s = _capture?.LastStderrLine;
+        return string.IsNullOrWhiteSpace(s) ? "" : $" | stderr: {s}";
     }
 
     private static Brush Brush(string hex)
