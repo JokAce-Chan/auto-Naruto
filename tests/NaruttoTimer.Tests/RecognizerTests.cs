@@ -411,6 +411,111 @@ public static class RecognizerTests
         Check.Equal(CellState.Bright, r2.Cells[3], "snap cell3 bright");
     }
 
+
+    // ── G4/G6 复判间隔（仅在菱形缺失后复判 G4/G6，稳定后停止）──
+
+    private static Recognizer NewRecognizerGJ(double gridJudge, int debounce = 2) =>
+        new(new RecognizerOptions(
+            new ColorRange(180, 255, 120, 255, 120, 255),
+            new ColorRange(0, 90, 70, 165, 85, 180),
+            LeftRoi,
+            null,
+            OrangeRange: new ColorRange(180, 255, 40, 140, 0, 120),
+            DebounceFrames: debounce,
+            LoadingSeconds: 0.3,
+            GridJudgeSeconds: gridJudge));
+
+    [Fact]
+    public static void 缺失不足复判间隔_保持当前格数()
+    {
+        var rec = NewRecognizerGJ(1.0, debounce: 1);
+        var t0 = DateTime.UtcNow;
+        var baseCells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        var r1 = rec.Recognize(MakeFrame(baseCells, t0)).Left;
+        Check.Equal(GridCount.G4, r1.GridCount, "基线 G4");
+        Check.Equal(2, r1.Value, "基线值 2");
+        // 缺失不足复判间隔，随后同帧恢复为 6 格 → 仍应保持 G4
+        var empty = MakeFrame(Array.Empty<FrameFactory.CellSpec>(), t0 + TimeSpan.FromMilliseconds(100));
+        rec.Recognize(empty);
+        var six = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 12, BrightColor),
+            new FrameFactory.CellSpec(66, 45, 12, BrightColor),
+            new FrameFactory.CellSpec(102, 45, 12, BrightColor),
+            new FrameFactory.CellSpec(138, 45, 12, DarkColor),
+            new FrameFactory.CellSpec(174, 45, 12, DarkColor),
+            new FrameFactory.CellSpec(210, 45, 12, DarkColor),
+        };
+        var r2 = rec.Recognize(MakeFrame(six, t0 + TimeSpan.FromMilliseconds(140))).Left;
+        Check.Equal(GridCount.G4, r2.GridCount, "未缺失复判 → 保持 G4");
+    }
+
+    [Fact]
+    public static void 缺失超过复判间隔_重新判定新格数()
+    {
+        var rec = NewRecognizerGJ(1.0, debounce: 1);
+        var t0 = DateTime.UtcNow;
+        var baseCells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        rec.Recognize(MakeFrame(baseCells, t0));
+        // 缺失 ≥1s：进入加载并触发复判
+        var empty = MakeFrame(Array.Empty<FrameFactory.CellSpec>(), t0 + TimeSpan.FromMilliseconds(100));
+        rec.Recognize(empty);
+        var emptyLong = MakeFrame(Array.Empty<FrameFactory.CellSpec>(), t0 + TimeSpan.FromMilliseconds(1200));
+        rec.Recognize(emptyLong);
+        // 恢复为 6 格 → 复判为 G6
+        var six = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 12, BrightColor),
+            new FrameFactory.CellSpec(66, 45, 12, BrightColor),
+            new FrameFactory.CellSpec(102, 45, 12, BrightColor),
+            new FrameFactory.CellSpec(138, 45, 12, DarkColor),
+            new FrameFactory.CellSpec(174, 45, 12, DarkColor),
+            new FrameFactory.CellSpec(210, 45, 12, DarkColor),
+        };
+        var r = rec.Recognize(MakeFrame(six, t0 + TimeSpan.FromMilliseconds(1240))).Left;
+        Check.Equal(GridCount.G6, r.GridCount, "缺失≥1s 后复判为 G6");
+        Check.Equal(3, r.Value, "复判后值 3");
+    }
+
+    [Fact]
+    public static void 未缺失但格数突变_保持当前格数()
+    {
+        var rec = NewRecognizerGJ(1.0, debounce: 2);
+        var t0 = DateTime.UtcNow;
+        var baseCells = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(80, 45, 14, BrightColor),
+            new FrameFactory.CellSpec(130, 45, 14, DarkColor),
+            new FrameFactory.CellSpec(180, 45, 14, DarkColor),
+        };
+        rec.Recognize(MakeFrame(baseCells, t0));
+        rec.Recognize(MakeFrame(baseCells, t0 + TimeSpan.FromMilliseconds(40)));
+        var six = new[]
+        {
+            new FrameFactory.CellSpec(30, 45, 12, BrightColor),
+            new FrameFactory.CellSpec(66, 45, 12, BrightColor),
+            new FrameFactory.CellSpec(102, 45, 12, BrightColor),
+            new FrameFactory.CellSpec(138, 45, 12, DarkColor),
+            new FrameFactory.CellSpec(174, 45, 12, DarkColor),
+            new FrameFactory.CellSpec(210, 45, 12, DarkColor),
+        };
+        var r = rec.Recognize(MakeFrame(six, t0 + TimeSpan.FromMilliseconds(80))).Left;
+        Check.Equal(GridCount.G4, r.GridCount, "无缺失的格数突变 → 保持 G4");
+        Check.Equal(2, r.Value, "无缺失的格数突变 → 值 2 保持");
+    }
     [Fact]
     public static void Logic1_NoBaselineInvalidPattern_AllDark()
     {

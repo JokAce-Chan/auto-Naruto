@@ -18,6 +18,8 @@ public sealed class OverlayWindow : Window, IOverlayService
     private bool _locked;
     private (byte R, byte G, byte B) _leftColor = (31, 157, 85);
     private (byte R, byte G, byte B) _rightColor = (224, 62, 62);
+    private int _backgroundPercent = 55;
+    private int _textPercent = 100;
 
     public OverlayWindow()
     {
@@ -25,8 +27,8 @@ public sealed class OverlayWindow : Window, IOverlayService
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize; // 缩放由右下角手柄自绘实现
         AllowsTransparency = true;
-        Background = Brushes.White;
-        Opacity = 0.55;
+        Background = BackgroundBrush();
+        Opacity = 1.0;
         Topmost = true;
         ShowInTaskbar = false;
         Width = 220;
@@ -91,14 +93,23 @@ public sealed class OverlayWindow : Window, IOverlayService
         _rightText.FontSize = fontSize;
         _leftText.FontFamily = font;
         _rightText.FontFamily = font;
-        _leftText.Foreground = ColorFrom(_leftColor);
-        _rightText.Foreground = ColorFrom(_rightColor);
+        _leftText.Foreground = TextBrush(_leftColor);
+        _rightText.Foreground = TextBrush(_rightColor);
         _leftText.Margin = new Thickness(0, 0, spacing / 2, 0);
         _rightText.Margin = new Thickness(spacing / 2, 0, 0, 0);
     }
 
-    private static SolidColorBrush ColorFrom((byte R, byte G, byte B) c) =>
-        new(Color.FromRgb(c.R, c.G, c.B));
+    private SolidColorBrush TextBrush((byte R, byte G, byte B) c)
+    {
+        int alpha = Math.Clamp(_textPercent, 0, 100) * 255 / 100;
+        return new(Color.FromArgb((byte)alpha, c.R, c.G, c.B));
+    }
+
+    private SolidColorBrush BackgroundBrush()
+    {
+        int alpha = Math.Clamp(_backgroundPercent, 0, 100) * 255 / 100;
+        return new(Color.FromArgb((byte)alpha, 0xFF, 0xFF, 0xFF));
+    }
 
     // ── IOverlayService ──
 
@@ -127,7 +138,21 @@ public sealed class OverlayWindow : Window, IOverlayService
     public void SetOpacity(int percent)
     {
         int validated = OverlayFormat.ValidateOpacityPercent(percent);
-        RunOnUi(() => Opacity = validated / 100.0);
+        RunOnUi(() =>
+        {
+            _backgroundPercent = validated;
+            Background = BackgroundBrush();
+        });
+    }
+
+    public void SetTextOpacity(int percent)
+    {
+        int validated = Math.Clamp(percent, 0, 100);
+        RunOnUi(() =>
+        {
+            _textPercent = validated;
+            ApplyLayout();
+        });
     }
 
     public void SetColors(string leftHex, string rightHex)

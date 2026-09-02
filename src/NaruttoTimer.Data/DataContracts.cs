@@ -32,10 +32,12 @@ public sealed class AppSettings
     public RoiConfig? RightRoi { get; set; } = DefaultRightRoi;
     public double CountdownSeconds { get; set; } = 15.0;
     public double LoadingSeconds { get; set; } = 0.3;
+    public double GridJudgeSeconds { get; set; } = 1.0;
     public int DebounceFrames { get; set; } = 2;
     public ColorRange BrightRange { get; set; } = new(180, 255, 120, 255, 120, 255);
     public ColorRange DarkRange { get; set; } = new(0, 90, 70, 165, 85, 180);
     public int OverlayOpacityPercent { get; set; } = 55;
+    public int OverlayTextOpacityPercent { get; set; } = 100;
     public string OverlayLeftColor { get; set; } = "#1F9D55";
     public string OverlayRightColor { get; set; } = "#E03E3E";
     public bool OverlayLocked { get; set; }

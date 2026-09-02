@@ -36,6 +36,9 @@
                     <Border x:Name="DeviceDot" Width="9" Height="9" CornerRadius="5" Background="#6B7480" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <TextBlock x:Name="DeviceText" Text="雷电模拟器 emulator-7834" Foreground="#9AA3B0" FontSize="12" VerticalAlignment="Center" Margin="0,0,14,0"/>
                     <Button x:Name="BtnRefresh" Content="刷新设备" Style="{StaticResource ToolbarButton}" Click="BtnRefresh_Click"/>
+                    <ComboBox x:Name="DeviceCombo" Width="180" Margin="0,0,8,0" VerticalAlignment="Center"
+                              Background="#FFFFFF" Foreground="#000000" BorderBrush="#8A93A0"
+                              IsEditable="False"/>
                     <Button x:Name="BtnConnect" Content="连接" Style="{StaticResource ToolbarButton}" Click="BtnConnect_Click"/>
                     <Button x:Name="BtnStart" Content="开始识别" Style="{StaticResource ToolbarButton}" Click="BtnStart_Click"/>
                 </StackPanel>
@@ -62,8 +65,9 @@
             <!-- 预览区 -->
             <Border Grid.Column="0" Margin="14" CornerRadius="8" Background="#0D1B2E" BorderBrush="#2A3B52" BorderThickness="1">
                 <Grid>
-                    <Image x:Name="PreviewImage" Stretch="Uniform" Visibility="Collapsed"/>
+                    <Image x:Name="PreviewImage" Stretch="Uniform" VerticalAlignment="Top" Visibility="Collapsed"/>
                     <Canvas x:Name="PreviewCanvas" Visibility="Collapsed"/>
+                    <Canvas x:Name="PreviewCellCanvas" Visibility="Collapsed"/>
                     <Border x:Name="PreviewOffMask" Background="#AA0E1013" Visibility="Collapsed">
                         <TextBlock Text="预览已关闭·识别照跑" Foreground="#8FA3BC" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -99,6 +103,11 @@
                                 <TextBlock Style="{StaticResource CardBody}" Text="背景透明度"/>
                                 <Slider x:Name="OpacitySlider" Minimum="10" Maximum="90" Value="55" Width="140" Margin="10,0,0,0" VerticalAlignment="Center"/>
                                 <TextBlock x:Name="OpacityValue" Style="{StaticResource CardBody}" Text="55%" Margin="10,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                <TextBlock Style="{StaticResource CardBody}" Text="数字透明度"/>
+                                <Slider x:Name="TextOpacitySlider" Minimum="0" Maximum="100" Value="100" Width="140" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TextOpacityValue" Style="{StaticResource CardBody}" Text="100%" Margin="10,0,0,0"/>
                             </StackPanel>
                             <TextBlock Style="{StaticResource CardBody}" Text="显示格式：0.00  0.00（无括号 · 随框缩放）" Margin="0,10,0,0"/>
                         </StackPanel>

@@ -41,6 +41,9 @@ public partial class MainWindow : Window
     private readonly string _logPath;
     private bool _firstFrameLogged;
     private int _fpsLogCounter;
+    private RoiOverlayEditor? _leftRoiEditor;
+    private RoiOverlayEditor? _rightRoiEditor;
+    private bool _roiEditorsCreated;
 
     public MainWindow()
     {
@@ -65,13 +68,21 @@ public partial class MainWindow : Window
         OpacitySlider.ValueChanged += (_, _) =>
         {
             OpacityValue.Text = $"{(int)OpacitySlider.Value}%";
+            _settings.OverlayOpacityPercent = (int)OpacitySlider.Value;
             _overlay?.SetOpacity((int)OpacitySlider.Value);
+        };
+        TextOpacitySlider.ValueChanged += (_, _) =>
+        {
+            TextOpacityValue.Text = $"{(int)TextOpacitySlider.Value}%";
+            _settings.OverlayTextOpacityPercent = (int)TextOpacitySlider.Value;
+            _overlay?.SetTextOpacity((int)TextOpacitySlider.Value);
         };
         _uiTimer.Tick += (_, _) => UiTick();
 
         PreviewToggle.IsChecked = true;
         UpdatePreviewVisibility();
         ApplySettingsToUi();
+        InitDeviceCombo();
     }
 
     // ── 构建 ──
@@ -105,7 +116,8 @@ public partial class MainWindow : Window
             cal.Bright, cal.Dark, _settings.LeftRoi, _settings.RightRoi,
             OrangeRange: RecognizerOptions.DefaultOrangeRange,
             DebounceFrames: Math.Max(1, _settings.DebounceFrames),
-            LoadingSeconds: Math.Max(0.05, _settings.LoadingSeconds));
+            LoadingSeconds: Math.Max(0.05, _settings.LoadingSeconds),
+            GridJudgeSeconds: Math.Max(0.1, _settings.GridJudgeSeconds));
         return new Recognizer(opts);
     }
 
@@ -126,6 +138,8 @@ public partial class MainWindow : Window
     {
         DeviceText.Text = $"雷电模拟器 {_settings.DeviceSerial}";
         OpacitySlider.Value = Math.Clamp(_settings.OverlayOpacityPercent, 10, 90);
+        TextOpacitySlider.Value = Math.Clamp(_settings.OverlayTextOpacityPercent, 0, 100);
+        TextOpacityValue.Text = $"{_settings.OverlayTextOpacityPercent}%";
         LockToggle.IsChecked = _settings.OverlayLocked;
         LockValue.Text = _settings.OverlayLocked ? "已锁定" : "未锁定";
         var cal = _calibrationStore.Load();
@@ -162,6 +176,7 @@ public partial class MainWindow : Window
         _uiTimer.Stop();
         _pipeline?.Dispose();
         _overlay?.Hide();
+        _settingsStore.Save(_settings);
         base.OnClosing(e);
     }
 
@@ -174,6 +189,7 @@ public partial class MainWindow : Window
             var adb = new AdbCli(AdbCli.FindAdbPath(string.IsNullOrEmpty(_settings.AdbPath) ? null : _settings.AdbPath));
             var devices = await adb.DevicesAsync(CancellationToken.None).ConfigureAwait(true);
             var online = devices.Where(d => d.State == "device").Select(d => d.Serial).ToList();
+            RefreshDeviceCombo(online);
             if (online.Count == 0)
             {
                 DeviceDot.Background = Gray;
@@ -197,29 +213,95 @@ public partial class MainWindow : Window
     private void BtnConnect_Click(object sender, RoutedEventArgs e)
     {
         if (_capture == null) return;
+        var selected = DeviceCombo.SelectedItem as string;
+        if (string.IsNullOrEmpty(selected))
+        {
+            Log("请先 [刷新设备] 并选择一台设备");
+            return;
+        }
+        string current = _capture.DeviceSerial;
+
+        // 切换设备且识别运行中：提示先手动停止识别
+        if (_pipeline?.IsRunning == true && selected != current)
+        {
+            MessageBox.Show(this, "正在识别中，请先点击 [开始识别] 停止后再切换设备。",
+                "切换设备", MessageBoxButton.OK, MessageBoxImage.Information);
+            Log("切换设备被拦截：正在识别，请先停止识别");
+            return;
+        }
+
         if (_capture.State is CaptureState.Connected or CaptureState.Connecting)
         {
-            _pipeline?.Stop();
-            _uiTimer.Stop();
-            _overlay?.Hide();
-            _ = _capture.StopAsync();
-            BtnConnect.Content = "连接";
-            BtnStart.Content = "开始识别";
-            SetStatus("● 未连接", Gray);
-            Log("已断开视频流");
+            if (selected == current)
+            {
+                _pipeline?.Stop();
+                _uiTimer.Stop();
+                _overlay?.Hide();
+                _ = _capture.StopAsync();
+                BtnConnect.Content = "连接";
+                BtnStart.Content = "开始识别";
+                SetStatus("● 未连接", Gray);
+                Log("已断开视频流");
+            }
+            else
+            {
+                SwitchDevice(selected);
+            }
         }
         else
         {
-            try
+            if (selected == current)
             {
                 _ = _capture.StartAsync(CancellationToken.None);
                 BtnConnect.Content = "断开";
                 Log("正在连接视频流…");
             }
-            catch (Exception ex)
+            else
             {
-                Log($"连接失败：{ex.Message}");
+                SwitchDevice(selected);
             }
+        }
+    }
+
+    private void RefreshDeviceCombo(IReadOnlyList<string> online)
+    {
+        DeviceCombo.Items.Clear();
+        foreach (var s in online) DeviceCombo.Items.Add(s);
+        var current = _settings.DeviceSerial;
+        if (online.Contains(current)) DeviceCombo.SelectedItem = current;
+        else if (online.Count > 0) DeviceCombo.SelectedItem = online[0];
+    }
+
+    private void InitDeviceCombo()
+    {
+        DeviceCombo.Items.Clear();
+        DeviceCombo.Items.Add(_settings.DeviceSerial);
+        DeviceCombo.SelectedItem = _settings.DeviceSerial;
+    }
+
+    private void SwitchDevice(string serial)
+    {
+        if (_capture == null) return;
+        try
+        {
+            _pipeline?.Stop();
+            _uiTimer.Stop();
+            _overlay?.Hide();
+            _ = _capture.StopAsync();
+            _capture.StateChanged -= OnCaptureStateRaw;
+            _capture.FrameReady -= OnRawFrame;
+            _settings.DeviceSerial = serial;
+            _settingsStore.Save(_settings);
+            _pipeline?.Dispose();
+            BuildCore();
+            ApplySettingsToUi();
+            _ = _capture.StartAsync(CancellationToken.None);
+            BtnConnect.Content = "断开";
+            Log($"已切换到设备 {serial}");
+        }
+        catch (Exception ex)
+        {
+            Log($"切换设备失败：{ex.Message}");
         }
     }
 
@@ -263,6 +345,7 @@ public partial class MainWindow : Window
         PreviewOffMask.Visibility = _previewVisible ? Visibility.Collapsed : Visibility.Visible;
         PreviewImage.Visibility = _previewVisible && _lastFrame != null ? Visibility.Visible : Visibility.Collapsed;
         PreviewCanvas.Visibility = _previewVisible && _lastFrame != null ? Visibility.Visible : Visibility.Collapsed;
+        PreviewCellCanvas.Visibility = _previewVisible && _lastFrame != null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ── 工具栏：视图与配置 ──
@@ -335,7 +418,8 @@ public partial class MainWindow : Window
             cal.Bright, cal.Dark, _settings.LeftRoi, _settings.RightRoi,
             OrangeRange: RecognizerOptions.DefaultOrangeRange,
             DebounceFrames: Math.Max(1, _settings.DebounceFrames),
-            LoadingSeconds: Math.Max(0.05, _settings.LoadingSeconds));
+            LoadingSeconds: Math.Max(0.05, _settings.LoadingSeconds),
+            GridJudgeSeconds: Math.Max(0.1, _settings.GridJudgeSeconds));
     }
 
     // ── 置顶框 ──
@@ -346,6 +430,7 @@ public partial class MainWindow : Window
         {
             _overlay = new OverlayWindow();
             _overlay.SetOpacity((int)OpacitySlider.Value);
+            _overlay.SetTextOpacity((int)TextOpacitySlider.Value);
             _overlay.SetColors(_settings.OverlayLeftColor, _settings.OverlayRightColor);
             _overlay.SetLocked(LockToggle.IsChecked == true);
         }
@@ -475,6 +560,7 @@ public partial class MainWindow : Window
         PreviewImage.Visibility = Visibility.Visible;
         PreviewPlaceholder.Visibility = Visibility.Collapsed;
         PreviewCanvas.Visibility = Visibility.Visible;
+        PreviewCellCanvas.Visibility = Visibility.Visible;
 
         double aw = PreviewImage.ActualWidth, ah = PreviewImage.ActualHeight;
         if (aw <= 0 || ah <= 0) return;
@@ -482,39 +568,49 @@ public partial class MainWindow : Window
         double ox = (aw - frame.Width * scale) / 2;
         double oy = (ah - frame.Height * scale) / 2;
 
-        PreviewCanvas.Children.Clear();
+        EnsureRoiEditors();
+        RepositionRoiEditors(ox, oy, scale);
+
+        PreviewCellCanvas.Children.Clear();
         var o = _lastOutput;
-        DrawRoiOverlay(ox, oy, scale, _settings.LeftRoi, Color.FromRgb(0x2E, 0xCC, 0x71), "左", o?.Left);
-        DrawRoiOverlay(ox, oy, scale, _settings.RightRoi, Color.FromRgb(0xE0, 0x3E, 0x3E), "右", o?.Right);
+        DrawCells(ox, oy, scale, _settings.LeftRoi, o?.Left);
+        DrawCells(ox, oy, scale, _settings.RightRoi, o?.Right);
     }
 
-    private void DrawRoiOverlay(double ox, double oy, double scale, RoiConfig? roi, Color border, string label, SideRecognition? rec)
+    private void EnsureRoiEditors()
     {
-        if (roi == null) return;
-        var rect = new System.Windows.Shapes.Rectangle
-        {
-            Width = roi.Width * scale,
-            Height = roi.Height * scale,
-            Stroke = new SolidColorBrush(border),
-            StrokeThickness = 2,
-            StrokeDashArray = new DoubleCollection { 4, 2 },
-        };
-        Canvas.SetLeft(rect, ox + roi.X * scale);
-        Canvas.SetTop(rect, oy + roi.Y * scale);
-        PreviewCanvas.Children.Add(rect);
+        if (_roiEditorsCreated) return;
+        _roiEditorsCreated = true;
+        _leftRoiEditor = new RoiOverlayEditor(_settings.LeftRoi ?? AppSettings.DefaultLeftRoi,
+            Color.FromRgb(0x2E, 0xCC, 0x71), "左", r => OnRoiChanged(Side.Left, r));
+        _rightRoiEditor = new RoiOverlayEditor(_settings.RightRoi ?? AppSettings.DefaultRightRoi,
+            Color.FromRgb(0xE0, 0x3E, 0x3E), "右", r => OnRoiChanged(Side.Right, r));
+        PreviewCanvas.Children.Add(_leftRoiEditor.Element);
+        PreviewCanvas.Children.Add(_rightRoiEditor.Element);
+    }
 
-        var labelTb = new TextBlock
-        {
-            Text = $"{label} {rec?.Value ?? 0}",
-            Foreground = new SolidColorBrush(border),
-            FontSize = 13,
-            FontWeight = FontWeights.Bold,
-        };
-        Canvas.SetLeft(labelTb, ox + roi.X * scale);
-        Canvas.SetTop(labelTb, Math.Max(0, oy + roi.Y * scale - 18));
-        PreviewCanvas.Children.Add(labelTb);
+    private void RepositionRoiEditors(double ox, double oy, double scale)
+    {
+        _leftRoiEditor?.Reposition(scale, ox, oy, _settings.LeftRoi ?? AppSettings.DefaultLeftRoi);
+        _rightRoiEditor?.Reposition(scale, ox, oy, _settings.RightRoi ?? AppSettings.DefaultRightRoi);
+        _leftRoiEditor?.SetLabel($"左 {_lastOutput?.Left.Value ?? 0}");
+        _rightRoiEditor?.SetLabel($"右 {_lastOutput?.Right.Value ?? 0}");
+    }
 
-        if (rec?.Centers == null) return;
+    private void OnRoiChanged(Side side, RoiConfig roi)
+    {
+        if (side == Side.Left) _settings.LeftRoi = roi;
+        else _settings.RightRoi = roi;
+        if (_pipeline?.Recognizer is Recognizer r) r.UpdateOptions(BuildRecognizerOptions());
+        RoiText.Text =
+            $"区域A（左）：{_settings.LeftRoi?.X},{_settings.LeftRoi?.Y},{_settings.LeftRoi?.Width},{_settings.LeftRoi?.Height}" +
+            Environment.NewLine +
+            $"区域B（右）：{_settings.RightRoi?.X},{_settings.RightRoi?.Y},{_settings.RightRoi?.Width},{_settings.RightRoi?.Height}";
+    }
+
+    private void DrawCells(double ox, double oy, double scale, RoiConfig? roi, SideRecognition? rec)
+    {
+        if (roi == null || rec?.Centers == null) return;
         double cy = oy + roi.Y * scale + roi.Height * scale / 2;
         for (int i = 0; i < rec.Centers.Count && i < rec.Cells.Count; i++)
         {
@@ -525,7 +621,7 @@ public partial class MainWindow : Window
                 _ => Color.FromRgb(0x88, 0x88, 0x88),
             };
             if (rec.Value == 4 && rec.Cells[i] == CellState.Bright)
-                cellColor = Color.FromRgb(0xFF, 0x8C, 0x3C); // 值=4 突变偏橙红
+                cellColor = Color.FromRgb(0xFF, 0x8C, 0x3C);
 
             var cell = new Border
             {
@@ -533,10 +629,11 @@ public partial class MainWindow : Window
                 Height = Math.Max(6, 14 * scale),
                 Background = new SolidColorBrush(cellColor),
                 CornerRadius = new CornerRadius(3),
+                IsHitTestVisible = false,
             };
             Canvas.SetLeft(cell, ox + (rec.Centers[i] - 7) * scale);
             Canvas.SetTop(cell, cy - 7 * scale);
-            PreviewCanvas.Children.Add(cell);
+            PreviewCellCanvas.Children.Add(cell);
         }
     }
 

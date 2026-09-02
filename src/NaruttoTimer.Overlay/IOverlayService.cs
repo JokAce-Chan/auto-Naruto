@@ -1,4 +1,4 @@
-﻿using NaruttoTimer.Rules;
+using NaruttoTimer.Rules;
 
 namespace NaruttoTimer.Overlay;
 
@@ -12,6 +12,7 @@ public interface IOverlayService
     void Hide();
     void SetLocked(bool locked);
     void SetOpacity(int percent);          // 10~90
+    void SetTextOpacity(int percent);       // 0~100（数字透明度）
     void SetColors(string leftHex, string rightHex);
     void Update(CountdownSnapshot snapshot);
 }

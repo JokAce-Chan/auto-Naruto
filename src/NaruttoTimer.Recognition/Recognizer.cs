@@ -12,7 +12,8 @@ public sealed record RecognizerOptions(
     RoiConfig? RightRoi = null,
     ColorRange? OrangeRange = null,
     int DebounceFrames = 2,
-    double LoadingSeconds = 0.3)
+    double LoadingSeconds = 0.3,
+    double GridJudgeSeconds = 1.0)
 {
     /// <summary>值=4 突变橙红默认区间（天蓝亮格之外的警示色，归入 Bright）。</summary>
     public static ColorRange DefaultOrangeRange { get; } = new(180, 255, 40, 150, 0, 130);
@@ -34,6 +35,10 @@ public sealed class Recognizer : IRecognizer
         public SideRecognition? Pending;
         public int PendingCount;
         public DateTime? UnstableSince;
+        public GridCount? Grid;
+        public bool ReJudgeArmed;
+        public GridCount? ReJudgeNewGrid;
+        public int ReJudgeCount;
     }
 
     private RecognizerOptions _options;
@@ -70,18 +75,58 @@ public sealed class Recognizer : IRecognizer
         }
 
         var cells = CellDetector.Detect(frame, roi, _options);
-        var grid = cells.Count switch
+        var detectedGrid = cells.Count switch
         {
             4 => GridCount.G4,
             6 => GridCount.G6,
             _ => (GridCount?)null,
         };
-        if (grid == null)
+
+        if (detectedGrid == null)
         {
-            return MarkUnstable(st, frame.Timestamp);
+            // 菱形缺失：先维持当前 G 值/倒计时；缺失持续超过复判间隔后，允许下一次有效读数重新判定 G4/G6。
+            var res = MarkUnstable(st, frame.Timestamp);
+            if (st.UnstableSince.HasValue &&
+                (frame.Timestamp - st.UnstableSince.Value).TotalSeconds >= _options.GridJudgeSeconds)
+            {
+                st.ReJudgeArmed = true;
+            }
+            return res;
         }
 
         st.UnstableSince = null;
+
+        GridCount grid = detectedGrid.Value;
+
+        // —— G4/G6 复判门槛：仅在“菱形缺失”后允许切换格数；稳定后停止，缺失再次触发 ——
+        if (st.ReJudgeArmed)
+        {
+            // 复判时要求新格数连续若干帧，避免恢复瞬间的单帧闪断锁错格数。
+            if (st.ReJudgeNewGrid == grid) st.ReJudgeCount++;
+            else { st.ReJudgeNewGrid = grid; st.ReJudgeCount = 1; }
+            if (st.ReJudgeCount >= _options.DebounceFrames)
+            {
+                st.ReJudgeArmed = false;
+                st.Grid = grid;
+                st.ReJudgeNewGrid = null;
+                st.ReJudgeCount = 0;
+            }
+            else
+            {
+                // 尚未稳定：保持当前 G，本次仍按上一稳定值处理
+                return HoldGrid(st, side, cells);
+            }
+        }
+        else if (st.Grid == null)
+        {
+            // 首个有效读数：立下当前格数基线
+            st.Grid = grid;
+        }
+        else if (st.Grid.Value != grid)
+        {
+            // 未缺失但格数变化：视为噪声/短闪，保持当前 G，不改值、不累加防抖
+            return HoldGrid(st, side, cells);
+        }
 
         // 逻辑1：亮格必须连成一块。左侧从最左连续（◆◇◇◇ / ◆◆◇◇），右侧从最右连续（◇◇◇◆ / ◇◇◆◆）。
         // 违反此规则的读取视为噪声，不提交、不累加防抖，保持上一稳定值，避免背景/阈值波动导致 G 值跳变。
@@ -95,14 +140,14 @@ public sealed class Recognizer : IRecognizer
             st.PendingCount = 0;
             var centers = cells.Select(c => c.CenterX).ToList();
             if (st.Stable == null)
-                return new SideRecognition(grid.Value, 0, SnapStates(cells.Count, 0, side), false, centers);
-            int snapValue = st.Stable.GridCount == grid.Value ? st.Stable.Value : Math.Min(st.Stable.Value, (int)grid.Value);
+                return new SideRecognition(grid, 0, SnapStates(cells.Count, 0, side), false, centers);
+            int snapValue = st.Stable.GridCount == grid ? st.Stable.Value : Math.Min(st.Stable.Value, (int)grid);
             return st.Stable with { Cells = SnapStates(cells.Count, snapValue, side), Centers = centers };
         }
 
         // 合法时值 = 连续亮块长度（左侧前连续 / 右侧后连续）
         int value = totalBright;
-        var candidate = new SideRecognition(grid.Value, value, states, false, cells.Select(c => c.CenterX).ToList());
+        var candidate = new SideRecognition(grid, value, states, false, cells.Select(c => c.CenterX).ToList());
 
         if (st.Pending != null && st.Pending.GridCount == candidate.GridCount && st.Pending.Value == candidate.Value)
         {
@@ -122,6 +167,19 @@ public sealed class Recognizer : IRecognizer
 
         // 规则层只消费防抖后的稳定值；当前帧分类仅用于预览显示
         return st.Stable with { Cells = candidate.Cells };
+    }
+
+    /// <summary>未发生缺失但格数变化，或复判尚未稳定时：保持当前 G 与稳定值，按稳定值合成预览图案。</summary>
+    private SideRecognition HoldGrid(SideState st, Side side, IReadOnlyList<DetectedCell> cells)
+    {
+        GridCount grid = st.Grid!.Value;
+        st.Pending = null;
+        st.PendingCount = 0;
+        var centers = cells.Select(c => c.CenterX).ToList();
+        if (st.Stable == null)
+            return new SideRecognition(grid, 0, SnapStates((int)grid, 0, side), false, centers);
+        int snapValue = st.Stable.GridCount == grid ? st.Stable.Value : Math.Min(st.Stable.Value, (int)grid);
+        return st.Stable with { Cells = SnapStates((int)grid, snapValue, side), Centers = centers };
     }
 
     private static int LeadingBright(IReadOnlyList<CellState> cells)

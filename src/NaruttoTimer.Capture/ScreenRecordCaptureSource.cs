@@ -31,6 +31,7 @@ public sealed class ScreenRecordCaptureSource : ICaptureSource
     public CaptureState State { get; private set; } = CaptureState.Disconnected;
     public double CurrentFps => _fps.Current;
     public string? LastStderrLine => _lastStderrLine;
+    public string DeviceSerial => _options.DeviceSerial;
 
     public event EventHandler<CapturedFrame>? FrameReady;
     public event EventHandler<CaptureStateChangedEventArgs>? StateChanged;

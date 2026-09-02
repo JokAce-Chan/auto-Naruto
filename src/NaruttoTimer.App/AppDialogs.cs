@@ -148,6 +148,10 @@ public sealed class RoiDialog : Window
 
     private readonly TextBox _lx = new(), _ly = new(), _lw = new(), _lh = new();
     private readonly TextBox _rx = new(), _ry = new(), _rw = new(), _rh = new();
+    private readonly Image _roiImage = new() { Stretch = Stretch.Uniform };
+    private readonly Canvas _roiCanvas = new();
+    private RoiOverlayEditor? _leftEditor;
+    private RoiOverlayEditor? _rightEditor;
 
     public RoiDialog(AppSettings settings, CapturedFrame? frame, Recognizer? recognizer)
     {
@@ -156,7 +160,7 @@ public sealed class RoiDialog : Window
         _recognizer = recognizer;
         Title = "区域配置 · 左右菱形区域坐标（相对当前预览帧）";
         Width = 620;
-        Height = 460;
+        Height = 680;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(0x18, 0x1B, 0x20));
 
@@ -209,9 +213,31 @@ public sealed class RoiDialog : Window
         var body = new StackPanel();
         body.Children.Add(hint);
         body.Children.Add(grid);
+        if (_frame != null)
+        {
+            var preview = BuildPreviewHost();
+            if (preview != null) body.Children.Add(preview);
+        }
+        else
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = "暂无帧，请先连接并预览后再调整区域。",
+                Foreground = Brushes.Gray,
+                Margin = new Thickness(8, 6, 8, 0),
+            });
+        }
         body.Children.Add(_result);
         panel.Children.Add(body);
         Content = panel;
+
+        if (_frame != null)
+        {
+            Loaded += (_, _) => RepositionEditors();
+            SizeChanged += (_, _) => RepositionEditors();
+            foreach (var tb in new[] { _lx, _ly, _lw, _lh, _rx, _ry, _rw, _rh })
+                tb.TextChanged += (_, _) => RepositionEditors();
+        }
     }
 
     private void AddRoiRow(Grid grid, int row, string label, TextBox x, TextBox y, TextBox w, TextBox h)
@@ -245,12 +271,65 @@ public sealed class RoiDialog : Window
             _settings.BrightRange, _settings.DarkRange, left, right,
             OrangeRange: RecognizerOptions.DefaultOrangeRange,
             DebounceFrames: Math.Max(1, _settings.DebounceFrames),
-            LoadingSeconds: Math.Max(0.05, _settings.LoadingSeconds));
+            LoadingSeconds: Math.Max(0.05, _settings.LoadingSeconds),
+            GridJudgeSeconds: Math.Max(0.1, _settings.GridJudgeSeconds));
         var rec = new Recognizer(opts);
         var output = rec.Recognize(_frame);
         _result.Text =
             $"左：格数 {output.Left.GridCount} · 值 {output.Left.Value} · 加载 {output.Left.InLoading}    " +
             $"右：格数 {output.Right.GridCount} · 值 {output.Right.Value} · 加载 {output.Right.InLoading}";
+    }
+
+    private UIElement? BuildPreviewHost()
+    {
+        if (_frame == null) return null;
+        var bmp = new WriteableBitmap(_frame.Width, _frame.Height, 96, 96, PixelFormats.Bgra32, null);
+        bmp.WritePixels(new Int32Rect(0, 0, _frame.Width, _frame.Height), _frame.Pixels, _frame.Width * 4, 0);
+        _roiImage.Source = bmp;
+
+        _roiImage.VerticalAlignment = VerticalAlignment.Top;
+        var host = new Grid { Margin = new Thickness(8), Height = 240, Background = new SolidColorBrush(Color.FromRgb(0x0D, 0x1B, 0x2E)) };
+        host.Children.Add(_roiImage);
+        host.Children.Add(_roiCanvas);
+        return host;
+    }
+
+    private void RepositionEditors()
+    {
+        if (_frame == null) return;
+        double aw = _roiImage.ActualWidth, ah = _roiImage.ActualHeight;
+        if (aw <= 0 || ah <= 0) return;
+        double scale = Math.Min(aw / _frame.Width, ah / _frame.Height);
+        double ox = (aw - _frame.Width * scale) / 2;
+        double oy = (ah - _frame.Height * scale) / 2;
+
+        EnsureEditors();
+        var left = ParseRoi(_lx, _ly, _lw, _lh) ?? AppSettings.DefaultLeftRoi;
+        var right = ParseRoi(_rx, _ry, _rw, _rh) ?? AppSettings.DefaultRightRoi;
+        _leftEditor!.Reposition(scale, ox, oy, left);
+        _rightEditor!.Reposition(scale, ox, oy, right);
+        _leftEditor.SetLabel($"左 {left.Width}×{left.Height}");
+        _rightEditor.SetLabel($"右 {right.Width}×{right.Height}");
+    }
+
+    private void EnsureEditors()
+    {
+        if (_leftEditor != null) return;
+        _leftEditor = new RoiOverlayEditor(ParseRoi(_lx, _ly, _lw, _lh) ?? AppSettings.DefaultLeftRoi,
+            Color.FromRgb(0x2E, 0xCC, 0x71), "左", r => OnRoiChanged(Side.Left, r));
+        _rightEditor = new RoiOverlayEditor(ParseRoi(_rx, _ry, _rw, _rh) ?? AppSettings.DefaultRightRoi,
+            Color.FromRgb(0xE0, 0x3E, 0x3E), "右", r => OnRoiChanged(Side.Right, r));
+        _roiCanvas.Children.Add(_leftEditor.Element);
+        _roiCanvas.Children.Add(_rightEditor.Element);
+    }
+
+    private void OnRoiChanged(Side side, RoiConfig roi)
+    {
+        var (x, y, w, h) = side == Side.Left ? (_lx, _ly, _lw, _lh) : (_rx, _ry, _rw, _rh);
+        x.Text = roi.X.ToString();
+        y.Text = roi.Y.ToString();
+        w.Text = roi.Width.ToString();
+        h.Text = roi.Height.ToString();
     }
 
     private static RoiConfig? ParseRoi(TextBox x, TextBox y, TextBox w, TextBox h)
