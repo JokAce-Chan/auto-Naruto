@@ -21,11 +21,6 @@
                     <TextBlock Text="替身计时器" Foreground="#E6E8EC" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
                     <TextBlock Text="NaruttoTimer v0.1 · 开发中" Foreground="#6B7480" FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                    <Button x:Name="BtnMinimize" Content="&#x2014;" Width="34" Background="Transparent" BorderThickness="0" Foreground="#9AA3B0" Click="BtnMinimize_Click"/>
-                    <Button x:Name="BtnMaximize" Content="&#x25A1;" Width="34" Background="Transparent" BorderThickness="0" Foreground="#9AA3B0" Click="BtnMaximize_Click"/>
-                    <Button x:Name="BtnClose" Content="&#x2715;" Width="34" Background="Transparent" BorderThickness="0" Foreground="#FF5C5C" Click="BtnClose_Click"/>
-                </StackPanel>
             </DockPanel>
         </Border>
 
@@ -67,7 +62,6 @@
                 <Grid>
                     <Image x:Name="PreviewImage" Stretch="Uniform" VerticalAlignment="Top" Visibility="Collapsed"/>
                     <Canvas x:Name="PreviewCanvas" Visibility="Collapsed"/>
-                    <Canvas x:Name="PreviewCellCanvas" Visibility="Collapsed"/>
                     <Border x:Name="PreviewOffMask" Background="#AA0E1013" Visibility="Collapsed">
                         <TextBlock Text="预览已关闭·识别照跑" Foreground="#8FA3BC" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>

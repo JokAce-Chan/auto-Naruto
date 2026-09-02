@@ -41,9 +41,6 @@ public partial class MainWindow : Window
     private readonly string _logPath;
     private bool _firstFrameLogged;
     private int _fpsLogCounter;
-    private RoiOverlayEditor? _leftRoiEditor;
-    private RoiOverlayEditor? _rightRoiEditor;
-    private bool _roiEditorsCreated;
 
     public MainWindow()
     {
@@ -152,15 +149,6 @@ public partial class MainWindow : Window
             Environment.NewLine +
             $"区域B（右）：{(_settings.RightRoi != null ? $"{_settings.RightRoi.X},{_settings.RightRoi.Y},{_settings.RightRoi.Width},{_settings.RightRoi.Height}" : "待框选")}";
     }
-
-    // ── 标题栏 ──
-
-    private void BtnMinimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
-
-    private void BtnMaximize_Click(object sender, RoutedEventArgs e) =>
-        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-
-    private void BtnClose_Click(object sender, RoutedEventArgs e) => Close();
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
@@ -345,7 +333,6 @@ public partial class MainWindow : Window
         PreviewOffMask.Visibility = _previewVisible ? Visibility.Collapsed : Visibility.Visible;
         PreviewImage.Visibility = _previewVisible && _lastFrame != null ? Visibility.Visible : Visibility.Collapsed;
         PreviewCanvas.Visibility = _previewVisible && _lastFrame != null ? Visibility.Visible : Visibility.Collapsed;
-        PreviewCellCanvas.Visibility = _previewVisible && _lastFrame != null ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ── 工具栏：视图与配置 ──
@@ -560,7 +547,6 @@ public partial class MainWindow : Window
         PreviewImage.Visibility = Visibility.Visible;
         PreviewPlaceholder.Visibility = Visibility.Collapsed;
         PreviewCanvas.Visibility = Visibility.Visible;
-        PreviewCellCanvas.Visibility = Visibility.Visible;
 
         double aw = PreviewImage.ActualWidth, ah = PreviewImage.ActualHeight;
         if (aw <= 0 || ah <= 0) return;
@@ -568,49 +554,39 @@ public partial class MainWindow : Window
         double ox = (aw - frame.Width * scale) / 2;
         double oy = (ah - frame.Height * scale) / 2;
 
-        EnsureRoiEditors();
-        RepositionRoiEditors(ox, oy, scale);
-
-        PreviewCellCanvas.Children.Clear();
+        PreviewCanvas.Children.Clear();
         var o = _lastOutput;
-        DrawCells(ox, oy, scale, _settings.LeftRoi, o?.Left);
-        DrawCells(ox, oy, scale, _settings.RightRoi, o?.Right);
+        DrawRoiOverlay(ox, oy, scale, _settings.LeftRoi, Color.FromRgb(0x2E, 0xCC, 0x71), "左", o?.Left);
+        DrawRoiOverlay(ox, oy, scale, _settings.RightRoi, Color.FromRgb(0xE0, 0x3E, 0x3E), "右", o?.Right);
     }
 
-    private void EnsureRoiEditors()
+    private void DrawRoiOverlay(double ox, double oy, double scale, RoiConfig? roi, Color border, string label, SideRecognition? rec)
     {
-        if (_roiEditorsCreated) return;
-        _roiEditorsCreated = true;
-        _leftRoiEditor = new RoiOverlayEditor(_settings.LeftRoi ?? AppSettings.DefaultLeftRoi,
-            Color.FromRgb(0x2E, 0xCC, 0x71), "左", r => OnRoiChanged(Side.Left, r));
-        _rightRoiEditor = new RoiOverlayEditor(_settings.RightRoi ?? AppSettings.DefaultRightRoi,
-            Color.FromRgb(0xE0, 0x3E, 0x3E), "右", r => OnRoiChanged(Side.Right, r));
-        PreviewCanvas.Children.Add(_leftRoiEditor.Element);
-        PreviewCanvas.Children.Add(_rightRoiEditor.Element);
-    }
+        if (roi == null) return;
+        var rect = new System.Windows.Shapes.Rectangle
+        {
+            Width = roi.Width * scale,
+            Height = roi.Height * scale,
+            Stroke = new SolidColorBrush(border),
+            StrokeThickness = 2,
+            StrokeDashArray = new DoubleCollection { 4, 2 },
+        };
+        Canvas.SetLeft(rect, ox + roi.X * scale);
+        Canvas.SetTop(rect, oy + roi.Y * scale);
+        PreviewCanvas.Children.Add(rect);
 
-    private void RepositionRoiEditors(double ox, double oy, double scale)
-    {
-        _leftRoiEditor?.Reposition(scale, ox, oy, _settings.LeftRoi ?? AppSettings.DefaultLeftRoi);
-        _rightRoiEditor?.Reposition(scale, ox, oy, _settings.RightRoi ?? AppSettings.DefaultRightRoi);
-        _leftRoiEditor?.SetLabel($"左 {_lastOutput?.Left.Value ?? 0}");
-        _rightRoiEditor?.SetLabel($"右 {_lastOutput?.Right.Value ?? 0}");
-    }
+        var labelTb = new TextBlock
+        {
+            Text = $"{label} {rec?.Value ?? 0}",
+            Foreground = new SolidColorBrush(border),
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
+        };
+        Canvas.SetLeft(labelTb, ox + roi.X * scale);
+        Canvas.SetTop(labelTb, Math.Max(0, oy + roi.Y * scale - 18));
+        PreviewCanvas.Children.Add(labelTb);
 
-    private void OnRoiChanged(Side side, RoiConfig roi)
-    {
-        if (side == Side.Left) _settings.LeftRoi = roi;
-        else _settings.RightRoi = roi;
-        if (_pipeline?.Recognizer is Recognizer r) r.UpdateOptions(BuildRecognizerOptions());
-        RoiText.Text =
-            $"区域A（左）：{_settings.LeftRoi?.X},{_settings.LeftRoi?.Y},{_settings.LeftRoi?.Width},{_settings.LeftRoi?.Height}" +
-            Environment.NewLine +
-            $"区域B（右）：{_settings.RightRoi?.X},{_settings.RightRoi?.Y},{_settings.RightRoi?.Width},{_settings.RightRoi?.Height}";
-    }
-
-    private void DrawCells(double ox, double oy, double scale, RoiConfig? roi, SideRecognition? rec)
-    {
-        if (roi == null || rec?.Centers == null) return;
+        if (rec?.Centers == null) return;
         double cy = oy + roi.Y * scale + roi.Height * scale / 2;
         for (int i = 0; i < rec.Centers.Count && i < rec.Cells.Count; i++)
         {
@@ -621,7 +597,7 @@ public partial class MainWindow : Window
                 _ => Color.FromRgb(0x88, 0x88, 0x88),
             };
             if (rec.Value == 4 && rec.Cells[i] == CellState.Bright)
-                cellColor = Color.FromRgb(0xFF, 0x8C, 0x3C);
+                cellColor = Color.FromRgb(0xFF, 0x8C, 0x3C); // 值=4 突变偏橙红
 
             var cell = new Border
             {
@@ -629,11 +605,10 @@ public partial class MainWindow : Window
                 Height = Math.Max(6, 14 * scale),
                 Background = new SolidColorBrush(cellColor),
                 CornerRadius = new CornerRadius(3),
-                IsHitTestVisible = false,
             };
             Canvas.SetLeft(cell, ox + (rec.Centers[i] - 7) * scale);
             Canvas.SetTop(cell, cy - 7 * scale);
-            PreviewCellCanvas.Children.Add(cell);
+            PreviewCanvas.Children.Add(cell);
         }
     }
 

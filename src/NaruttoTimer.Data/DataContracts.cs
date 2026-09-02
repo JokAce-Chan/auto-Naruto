@@ -16,10 +16,10 @@ public sealed record RoiConfig(int X, int Y, int Width, int Height);
 public sealed class AppSettings
 {
     /// <summary>Default left ROI (region A) for the 1280x150 recognition frame; auto-filled.</summary>
-    public static RoiConfig DefaultLeftRoi { get; } = new(112, 66, 132, 48);
+    public static RoiConfig DefaultLeftRoi { get; } = new(112, 66, 180, 48);
 
     /// <summary>Default right ROI (region B) for the 1280x150 recognition frame; auto-filled.</summary>
-    public static RoiConfig DefaultRightRoi { get; } = new(1050, 66, 110, 48);
+    public static RoiConfig DefaultRightRoi { get; } = new(950, 66, 180, 48);
 
     public string DeviceSerial { get; set; } = "emulator-7834";
     public string ScrcpyPath { get; set; } = "";
