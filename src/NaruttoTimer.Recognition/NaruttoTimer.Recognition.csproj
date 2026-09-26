@@ -19,7 +19,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Update="assets\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- ExcludeFromSingleFile：模型按磁盘路径 AppContext.BaseDirectory\assets 读取，不能打进单文件包 -->
+    <None Update="assets\**" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
 </Project>

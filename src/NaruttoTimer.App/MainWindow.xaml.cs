@@ -105,6 +105,17 @@ public partial class MainWindow : Window
         InitDeviceCombo();
     }
 
+    /// <summary>关闭主窗口时收尾：停识别/采集（否则 adb screenrecord 子进程会残留，最长占用设备 180s）并关闭置顶框。</summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        try { _uiTimer.Stop(); } catch { }
+        try { _pipeline?.Stop(); } catch { }
+        try { _capture?.StopAsync().Wait(TimeSpan.FromSeconds(2)); } catch { }
+        try { _pipeline?.Dispose(); } catch { }
+        try { _overlay?.Close(); } catch { }
+        base.OnClosed(e);
+    }
+
     // ── 构建 ──
 
     private void BuildCore()

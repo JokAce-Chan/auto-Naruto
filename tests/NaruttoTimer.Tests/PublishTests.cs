@@ -56,6 +56,16 @@ public static class PublishTests
     }
 
     [Fact]
+    public static void 模型资源_排除单文件打包()
+    {
+        // 模型按磁盘路径 AppContext.BaseDirectory\assets 读取，打进单文件包会导致发布版加载失败。
+        var csproj = Path.Combine(FindRepoRoot(), "src", "NaruttoTimer.Recognition", "NaruttoTimer.Recognition.csproj");
+        var text = File.ReadAllText(csproj);
+        Check.True(text.Contains("CopyToOutputDirectory"), "模型资源应拷入输出目录");
+        Check.True(text.Contains("ExcludeFromSingleFile"), "模型资源不应打进单文件包");
+    }
+
+    [Fact]
     public static void 使用说明_存在且覆盖关键章节()
     {
         var doc = Path.Combine(FindRepoRoot(), "docs", "使用说明.md");
