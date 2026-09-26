@@ -1,6 +1,6 @@
 ﻿namespace NaruttoTimer.Capture;
 
-/// <summary>一帧采集画面（BGRA32 像素，顶部裁剪区域）。</summary>
+/// <summary>一帧采集画面（BGRA32 像素，整帧未裁切）。</summary>
 public sealed class CapturedFrame
 {
     public required int Width { get; init; }
@@ -29,7 +29,6 @@ public sealed class CaptureStateChangedEventArgs : EventArgs
 }
 
 /// <summary>
-/// 画面采集源（scrcpy 视频流）。连接 emulator-7834，推 server、forward 端口、
 /// 读 H.264 流解码为 BGRA 帧，通过 FrameReady 事件逐帧抛出。
 /// </summary>
 public interface ICaptureSource

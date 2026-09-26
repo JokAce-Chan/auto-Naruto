@@ -51,8 +51,7 @@ public static class CaptureTests
     {
         var o = new CaptureOptions("adb", "emulator-7834");
         Check.Equal(1280, o.VideoWidth, "录制宽度默认 1280");
-        Check.Equal(720, o.VideoHeight, "录制高度默认 720（全屏等比）");
-        Check.Equal(150, o.CropTopRows, "顶部保留行数默认 150（对应原生 300 行）");
+        Check.Equal(720, o.VideoHeight, "录制高度默认 720（整帧，不再裁切）");
         Check.Equal(30, o.MaxFps, "目标帧率默认 30");
         Check.Equal(4_000_000L, o.BitRate, "码率默认 4Mbps");
         Check.Equal(180, o.TimeLimitSeconds, "单次录制时长默认 180s");

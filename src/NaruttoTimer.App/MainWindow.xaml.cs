@@ -1,19 +1,20 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using NaruttoTimer.Calibration;
 using NaruttoTimer.Capture;
 using NaruttoTimer.Data;
 using NaruttoTimer.Overlay;
 using NaruttoTimer.Recognition;
+using NaruttoTimer.Recognition.ImageProcess;
 using NaruttoTimer.Rules;
 
 namespace NaruttoTimer.App;
 
-/// <summary>主窗口：采集、识别、规则、置顶框、数据保存全链路接线。</summary>
+/// <summary>主窗口：采集 → AI/传统识别 → 规则引擎 → 置顶框 + 数据保存全链路接线。</summary>
 public partial class MainWindow : Window
 {
     private static readonly Brush Gray = Brush("#6B7480");
@@ -21,26 +22,38 @@ public partial class MainWindow : Window
     private static readonly Brush Yellow = Brush("#E6A23C");
     private static readonly Brush Red = Brush("#FF5C5C");
 
+    private static readonly Color LeftBarColor = Color.FromRgb(0x2E, 0xCC, 0x71);
+    private static readonly Color RightBarColor = Color.FromRgb(0xE0, 0x3E, 0x3E);
+    private static readonly Color DetectionColor = Color.FromRgb(0xFF, 0x8C, 0x3C);
+
     private readonly string _dataRoot;
     private readonly JsonSettingsStore _settingsStore;
-    private readonly CalibrationStore _calibrationStore;
     private readonly DataStore _dataStore;
     private readonly DispatcherTimer _uiTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
 
     private AppSettings _settings;
     private ScreenRecordCaptureSource? _capture;
     private PipelineController? _pipeline;
+    private EnergyRecognizer? _recognizer;
     private OverlayWindow? _overlay;
     private CapturedFrame? _lastFrame;
-    private RecognitionOutput? _lastOutput;
-    private CountdownSnapshot _lastSnapshot = new(0, 0, SideStatus.Normal, SideStatus.Normal);
+    private EnergyReading? _lastReading;
+    private LabelImageConfig _editDraft = LabelImageConfig.CreateDefault();
+    private LabelLayoutEditor? _editor;
+    private LabelHandle _dragHandle = LabelHandle.None;
+    private Point _dragLast;
     private bool _renderScheduled;
     private bool _previewVisible = true;
-    private GridCount? _lastLeftGrid;
-    private GridCount? _lastRightGrid;
+    private bool _suppressModeEvent;
+    private double _previewScale = 1;
+    private double _previewOffsetX;
+    private double _previewOffsetY;
     private readonly string _logPath;
     private bool _firstFrameLogged;
     private int _fpsLogCounter;
+    private int _inferenceCount;
+    private DateTime _inferenceWindowStart = DateTime.UtcNow;
+    private double _inferenceFps;
 
     public MainWindow()
     {
@@ -48,19 +61,21 @@ public partial class MainWindow : Window
 
         _dataRoot = Path.Combine(AppContext.BaseDirectory, "data");
         _settingsStore = new JsonSettingsStore(Path.Combine(_dataRoot, "settings.json"));
-        _settings = _settingsStore.Load();
-        // Guard against stale full-screen ROI saved by older versions: if ROI has no overlap with the recognition frame (1280x150), fall back to default.
-        int frameH = _settings.CropTopRows > 0 && _settings.CropTopRows < _settings.VideoHeight
-            ? _settings.CropTopRows : _settings.VideoHeight;
-        _settings.LeftRoi = SanitizeRoi(_settings.LeftRoi, AppSettings.DefaultLeftRoi, _settings.VideoWidth, frameH);
-        _settings.RightRoi = SanitizeRoi(_settings.RightRoi, AppSettings.DefaultRightRoi, _settings.VideoWidth, frameH);
-        _calibrationStore = new CalibrationStore(Path.Combine(_dataRoot, "calibration.json"));
+        _settings = _settingsStore.Load().Normalize();
+        _editDraft = _settings.Label.Clone();
+        _editor = new LabelLayoutEditor(_editDraft);
         _dataStore = new DataStore(_dataRoot);
         _logPath = Path.Combine(AppContext.BaseDirectory, "logs", "nt-debug.log");
         try { Directory.CreateDirectory(Path.GetDirectoryName(_logPath)!); } catch { }
         Log($"App 启动 {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}");
 
+        PreviewCanvas.Background = Brushes.Transparent;
+        PreviewCanvas.MouseLeftButtonDown += PreviewCanvas_MouseLeftButtonDown;
+        PreviewCanvas.MouseMove += PreviewCanvas_MouseMove;
+        PreviewCanvas.MouseLeftButtonUp += PreviewCanvas_MouseLeftButtonUp;
+
         BuildCore();
+        ApplySettingsToUi();
 
         OpacitySlider.ValueChanged += (_, _) =>
         {
@@ -78,76 +93,78 @@ public partial class MainWindow : Window
 
         PreviewToggle.IsChecked = true;
         UpdatePreviewVisibility();
-        ApplySettingsToUi();
         InitDeviceCombo();
     }
 
     // ── 构建 ──
-
-    private static RoiConfig? SanitizeRoi(RoiConfig? roi, RoiConfig fallback, int frameW, int frameH)
-    {
-        if (roi == null) return fallback;
-        if (roi.Width <= 0 || roi.Height <= 0) return fallback;
-        // If ROI has no overlap with the recognition frame (e.g. stale full-screen Y=470), treat as invalid.
-        bool overlaps = roi.X < frameW && roi.Y < frameH && roi.X + roi.Width > 0 && roi.Y + roi.Height > 0;
-        return overlaps ? roi : fallback;
-    }
 
     private void BuildCore()
     {
         var adbPath = AdbCli.FindAdbPath(string.IsNullOrEmpty(_settings.AdbPath) ? null : _settings.AdbPath);
         var ffDir = FfmpegLocator.FindDirectory(string.IsNullOrEmpty(_settings.ScrcpyPath) ? null : _settings.ScrcpyPath);
         _capture = new ScreenRecordCaptureSource(
-            new CaptureOptions(adbPath, _settings.DeviceSerial, _settings.VideoWidth, _settings.VideoHeight, _settings.CropTopRows, _settings.MaxFps),
+            new CaptureOptions(adbPath, _settings.DeviceSerial, _settings.VideoWidth, _settings.VideoHeight, _settings.MaxFps),
             ffDir);
         _capture.StateChanged += OnCaptureStateRaw;
         _capture.FrameReady += OnRawFrame;
-        _pipeline = new PipelineController(_capture, BuildRecognizer(), new CountdownEngine(_settings.CountdownSeconds), _dataStore);
-        SubscribePipeline();
-    }
 
-    private Recognizer BuildRecognizer()
-    {
-        var cal = _calibrationStore.Load();
-        var opts = new RecognizerOptions(
-            cal.Bright, cal.Dark, _settings.LeftRoi, _settings.RightRoi,
-            OrangeRange: RecognizerOptions.DefaultOrangeRange,
-            DebounceFrames: Math.Max(1, _settings.DebounceFrames),
-            LoadingSeconds: Math.Max(0.05, _settings.LoadingSeconds),
-            GridJudgeSeconds: Math.Max(0.1, _settings.GridJudgeSeconds));
-        return new Recognizer(opts);
-    }
+        _recognizer?.Dispose();
+        _recognizer = new EnergyRecognizer(BuildRecognizerOptions(_settings.Label));
+        if (_recognizer.LoadWarning != null) Log(_recognizer.LoadWarning);
 
-    private void SubscribePipeline()
-    {
-        if (_pipeline == null) return;
+        var engine = new EnergyRuleEngine(_settings.CountdownSeconds, _settings.StableFrames);
+        _pipeline = new PipelineController(_capture, _recognizer, engine, _dataStore)
+        {
+            InferenceIntervalMs = _settings.InferenceIntervalMs,
+        };
         _pipeline.RecognitionUpdated += OnRecognitionUpdated;
-        _pipeline.CountdownUpdated += OnCountdownUpdated;
         _pipeline.Triggered += OnTriggered;
         _pipeline.Logged += OnLogged;
+        _pipeline.CaptureStateChanged += OnCaptureStateChanged;
     }
 
-    private void OnCaptureStateRaw(object? sender, CaptureStateChangedEventArgs e) => OnCaptureStateChanged(e.State, e.Message);
-
-    private void OnRawFrame(object? sender, CapturedFrame frame) => OnFrameAvailable(frame);
+    private RecognizerOptions BuildRecognizerOptions(LabelImageConfig label)
+    {
+        var assets = RecognizerOptions.DefaultAssetDirectory;
+        return new RecognizerOptions(
+            label,
+            Path.Combine(assets, "best.onnx"),
+            _settings.ConfidenceThreshold,
+            _settings.NmsThreshold,
+            _settings.TraditionalGrayThreshold);
+    }
 
     private void ApplySettingsToUi()
     {
         DeviceText.Text = $"雷电模拟器 {_settings.DeviceSerial}";
         OpacitySlider.Value = Math.Clamp(_settings.OverlayOpacityPercent, 10, 90);
+        OpacityValue.Text = $"{(int)OpacitySlider.Value}%";
         TextOpacitySlider.Value = Math.Clamp(_settings.OverlayTextOpacityPercent, 0, 100);
-        TextOpacityValue.Text = $"{_settings.OverlayTextOpacityPercent}%";
+        TextOpacityValue.Text = $"{(int)TextOpacitySlider.Value}%";
         LockToggle.IsChecked = _settings.OverlayLocked;
         LockValue.Text = _settings.OverlayLocked ? "已锁定" : "未锁定";
-        var cal = _calibrationStore.Load();
-        BrightThresholdText.Text =
-            $"亮：RGB({cal.Bright.RMin}-{cal.Bright.RMax},{cal.Bright.GMin}-{cal.Bright.GMax},{cal.Bright.BMin}-{cal.Bright.BMax})";
-        DarkThresholdText.Text =
-            $"暗：RGB({cal.Dark.RMin}-{cal.Dark.RMax},{cal.Dark.GMin}-{cal.Dark.GMax},{cal.Dark.BMin}-{cal.Dark.BMax})";
-        RoiText.Text =
-            $"区域A（左）：{(_settings.LeftRoi != null ? $"{_settings.LeftRoi.X},{_settings.LeftRoi.Y},{_settings.LeftRoi.Width},{_settings.LeftRoi.Height}" : "待框选")}" +
-            Environment.NewLine +
-            $"区域B（右）：{(_settings.RightRoi != null ? $"{_settings.RightRoi.X},{_settings.RightRoi.Y},{_settings.RightRoi.Width},{_settings.RightRoi.Height}" : "待框选")}";
+
+        _suppressModeEvent = true;
+        ModeCombo.Items.Clear();
+        ModeCombo.Items.Add("AI 模式");
+        ModeCombo.Items.Add("传统模式");
+        ModeCombo.SelectedIndex = _settings.Label.Mode == LabelMode.AI ? 0 : 1;
+        _suppressModeEvent = false;
+
+        UpdateParameterTexts();
+    }
+
+    private void UpdateParameterTexts()
+    {
+        string effective = _recognizer == null
+            ? _settings.Label.Mode.ToString()
+            : _recognizer.EffectiveMode == LabelMode.AI ? "AI" : "传统（回退）";
+        ModeText.Text = $"模式：{(_settings.Label.Mode == LabelMode.AI ? "AI 模式" : "传统模式")}（实际：{effective}）";
+        ParamText.Text = $"倒计时 {_settings.CountdownSeconds:0.##}s ｜ 稳定 {_settings.StableFrames} 帧 ｜ 推理间隔 {_settings.InferenceIntervalMs}ms ｜ 置信度 {_settings.ConfidenceThreshold:0.##} ｜ NMS {_settings.NmsThreshold:0.##} ｜ 灰度阈值 {_settings.TraditionalGrayThreshold}";
+        ModelText.Text = _recognizer?.LoadWarning ?? "模型：best.onnx（YOLOv8 · 单类空豆 · 输入 128×128）";
+        LabelText.Text =
+            $"左能量条：{_settings.Label.EnergyBar.Left}" + Environment.NewLine +
+            $"右能量条：{_settings.Label.EnergyBar.Right}";
     }
 
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
@@ -163,6 +180,7 @@ public partial class MainWindow : Window
         }
         _uiTimer.Stop();
         _pipeline?.Dispose();
+        _recognizer?.Dispose();
         _overlay?.Hide();
         _settingsStore.Save(_settings);
         base.OnClosing(e);
@@ -187,8 +205,8 @@ public partial class MainWindow : Window
             else
             {
                 DeviceDot.Background = Green;
-                DeviceText.Text = online.Count == 1 ? $"雷电模拟器 {online[0]}" : $"发现 {online.Count} 台设备";
-                Log($"刷新设备：发现 {online.Count} 台在线设备");
+                DeviceText.Text = $"发现 {online.Count} 台设备";
+                Log($"刷新设备：发现 {online.Count} 台在线设备（{string.Join(", ", online)}）");
             }
         }
         catch (Exception ex)
@@ -196,6 +214,22 @@ public partial class MainWindow : Window
             DeviceDot.Background = Red;
             Log($"刷新设备失败：{ex.Message}");
         }
+    }
+
+    private void RefreshDeviceCombo(IReadOnlyList<string> online)
+    {
+        DeviceCombo.Items.Clear();
+        foreach (var serial in online) DeviceCombo.Items.Add(serial);
+        var current = _settings.DeviceSerial;
+        if (online.Contains(current)) DeviceCombo.SelectedItem = current;
+        else if (online.Count > 0) DeviceCombo.SelectedItem = online[0];
+    }
+
+    private void InitDeviceCombo()
+    {
+        DeviceCombo.Items.Clear();
+        DeviceCombo.Items.Add(_settings.DeviceSerial);
+        DeviceCombo.SelectedItem = _settings.DeviceSerial;
     }
 
     private void BtnConnect_Click(object sender, RoutedEventArgs e)
@@ -209,7 +243,6 @@ public partial class MainWindow : Window
         }
         string current = _capture.DeviceSerial;
 
-        // 切换设备且识别运行中：提示先手动停止识别
         if (_pipeline?.IsRunning == true && selected != current)
         {
             MessageBox.Show(this, "正在识别中，请先点击 [开始识别] 停止后再切换设备。",
@@ -222,14 +255,7 @@ public partial class MainWindow : Window
         {
             if (selected == current)
             {
-                _pipeline?.Stop();
-                _uiTimer.Stop();
-                _overlay?.Hide();
-                _ = _capture.StopAsync();
-                BtnConnect.Content = "连接";
-                BtnStart.Content = "开始识别";
-                SetStatus("● 未连接", Gray);
-                Log("已断开视频流");
+                Disconnect();
             }
             else
             {
@@ -251,39 +277,37 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RefreshDeviceCombo(IReadOnlyList<string> online)
+    private void Disconnect()
     {
-        DeviceCombo.Items.Clear();
-        foreach (var s in online) DeviceCombo.Items.Add(s);
-        var current = _settings.DeviceSerial;
-        if (online.Contains(current)) DeviceCombo.SelectedItem = current;
-        else if (online.Count > 0) DeviceCombo.SelectedItem = online[0];
-    }
-
-    private void InitDeviceCombo()
-    {
-        DeviceCombo.Items.Clear();
-        DeviceCombo.Items.Add(_settings.DeviceSerial);
-        DeviceCombo.SelectedItem = _settings.DeviceSerial;
+        _pipeline?.Stop();
+        _uiTimer.Stop();
+        _overlay?.Hide();
+        _ = _capture?.StopAsync() ?? Task.CompletedTask;
+        BtnConnect.Content = "连接";
+        BtnStart.Content = "开始识别";
+        SetStatus("● 未连接", Gray);
+        Log("已断开视频流");
     }
 
     private void SwitchDevice(string serial)
     {
-        if (_capture == null) return;
         try
         {
             _pipeline?.Stop();
             _uiTimer.Stop();
             _overlay?.Hide();
-            _ = _capture.StopAsync();
-            _capture.StateChanged -= OnCaptureStateRaw;
-            _capture.FrameReady -= OnRawFrame;
+            _ = _capture?.StopAsync() ?? Task.CompletedTask;
+            if (_capture != null)
+            {
+                _capture.StateChanged -= OnCaptureStateRaw;
+                _capture.FrameReady -= OnRawFrame;
+            }
             _settings.DeviceSerial = serial;
             _settingsStore.Save(_settings);
             _pipeline?.Dispose();
             BuildCore();
             ApplySettingsToUi();
-            _ = _capture.StartAsync(CancellationToken.None);
+            _ = _capture!.StartAsync(CancellationToken.None);
             BtnConnect.Content = "断开";
             Log($"已切换到设备 {serial}");
         }
@@ -321,11 +345,23 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressModeEvent || ModeCombo.SelectedIndex < 0) return;
+        var mode = ModeCombo.SelectedIndex == 0 ? LabelMode.AI : LabelMode.TRADITIONAL;
+        if (_settings.Label.Mode == mode) return;
+        _settings.Label.Mode = mode;
+        _settingsStore.Save(_settings);
+        _recognizer?.UpdateOptions(BuildRecognizerOptions(_settings.Label));
+        UpdateParameterTexts();
+        Log($"识别模式已切换为 {mode}");
+    }
+
     private void PreviewToggle_Click(object sender, RoutedEventArgs e)
     {
         _previewVisible = PreviewToggle.IsChecked == true;
         UpdatePreviewVisibility();
-        Log(_previewVisible ? "预览已开启" : "预览已关闭·识别照跑");
+        Log(_previewVisible ? "预览已开启" : "预览已关闭／仅识别");
     }
 
     private void UpdatePreviewVisibility()
@@ -337,76 +373,92 @@ public partial class MainWindow : Window
 
     // ── 工具栏：视图与配置 ──
 
-    private void BtnCalibrate_Click(object sender, RoutedEventArgs e)
+    private void BtnLabelConfig_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFrame == null)
+        var dialog = new LabelConfigDialog(_settings.Label.Clone(), _lastFrame, RunLabelTest)
         {
-            Log("请先 [连接] 并进入预览后，再使用取色校准");
-            return;
-        }
-        var dialog = new CalibrationDialog(_lastFrame, _calibrationStore, _settings);
-        dialog.Owner = this;
-        if (dialog.ShowDialog() == true)
+            Owner = this,
+        };
+        if (dialog.ShowDialog() == true && dialog.Result != null)
         {
+            _settings.Label = dialog.Result;
+            _editDraft = _settings.Label.Clone();
+            _editor = new LabelLayoutEditor(_editDraft);
             _settingsStore.Save(_settings);
-            if (_pipeline?.Recognizer is Recognizer r) r.UpdateOptions(BuildRecognizerOptions());
-            ApplySettingsToUi();
-            Log("取色校准已保存并生效");
+            _recognizer?.UpdateOptions(BuildRecognizerOptions(_settings.Label));
+            UpdateParameterTexts();
+            RenderCurrent();
+            Log("区域标注已保存");
         }
     }
 
-    private void BtnRoi_Click(object sender, RoutedEventArgs e)
+    private string RunLabelTest(LabelImageConfig config)
     {
-        var dialog = new RoiDialog(_settings, _lastFrame, _pipeline?.Recognizer as Recognizer);
-        dialog.Owner = this;
-        if (dialog.ShowDialog() == true)
+        if (_lastFrame == null) return "暂无帧，请先 [连接] 并等待预览";
+        if (_recognizer == null) return "识别器不可用";
+        try
         {
-            _settingsStore.Save(_settings);
-            if (_pipeline?.Recognizer is Recognizer r) r.UpdateOptions(BuildRecognizerOptions());
-            ApplySettingsToUi();
-            Log("区域配置已保存");
+            using var mat = MatUtil.FromBgra(_lastFrame);
+            var reading = _recognizer.TestRecognize(BuildRecognizerOptions(config), mat);
+            return $"左 空豆 {reading.LeftEmptyCount} → 值 {reading.LeftValue} ｜ 右 空豆 {reading.RightEmptyCount} → 值 {reading.RightValue}";
+        }
+        catch (Exception ex)
+        {
+            return $"测试失败：{ex.Message}";
+        }
+    }
+
+    private void BtnDumpFrame_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastFrame == null)
+        {
+            Log("请先 [连接] 并进入预览后，再导出识别帧");
+            return;
+        }
+        try
+        {
+            var f = _lastFrame;
+            var dir = Path.Combine(_dataRoot, "debug");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, $"frame-{DateTime.Now:HHmmssfff}.png");
+            int stride = f.Width * 4;
+            var bmp = BitmapSource.Create(f.Width, f.Height, 96, 96, PixelFormats.Bgra32, null, f.Pixels, stride);
+            var enc = new PngBitmapEncoder();
+            enc.Frames.Add(BitmapFrame.Create(bmp));
+            using (var fs = File.Create(path)) enc.Save(fs);
+            Log("已导出识别帧：" + path);
+        }
+        catch (Exception ex)
+        {
+            Log("导出识别帧失败：" + ex.Message);
         }
     }
 
     private void BtnData_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new DataDialog(_dataStore);
-        dialog.Owner = this;
+        var dialog = new DataDialog(_dataStore) { Owner = this };
         dialog.ShowDialog();
     }
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SettingsDialog(_settings);
-        dialog.Owner = this;
-        if (dialog.ShowDialog() == true)
-        {
-            _settingsStore.Save(_settings);
-            bool wasRunning = _pipeline?.IsRunning == true;
-            _pipeline?.Dispose();
-            _uiTimer.Stop();
-            _overlay?.Hide();
-            BuildCore();
-            ApplySettingsToUi();
-            if (wasRunning)
-            {
-                _pipeline?.Start();
-                _uiTimer.Start();
-                EnsureOverlay().Show();
-            }
-            Log("设置已保存并应用");
-        }
-    }
+        var dialog = new SettingsDialog(_settings) { Owner = this };
+        if (dialog.ShowDialog() != true) return;
 
-    private RecognizerOptions BuildRecognizerOptions()
-    {
-        var cal = _calibrationStore.Load();
-        return new RecognizerOptions(
-            cal.Bright, cal.Dark, _settings.LeftRoi, _settings.RightRoi,
-            OrangeRange: RecognizerOptions.DefaultOrangeRange,
-            DebounceFrames: Math.Max(1, _settings.DebounceFrames),
-            LoadingSeconds: Math.Max(0.05, _settings.LoadingSeconds),
-            GridJudgeSeconds: Math.Max(0.1, _settings.GridJudgeSeconds));
+        _settingsStore.Save(_settings);
+        bool wasRunning = _pipeline?.IsRunning == true;
+        _pipeline?.Dispose();
+        _uiTimer.Stop();
+        _overlay?.Hide();
+        BuildCore();
+        ApplySettingsToUi();
+        if (wasRunning)
+        {
+            _pipeline?.Start();
+            _uiTimer.Start();
+            EnsureOverlay().Show();
+        }
+        Log("设置已保存并应用");
     }
 
     // ── 置顶框 ──
@@ -433,52 +485,43 @@ public partial class MainWindow : Window
         Log(locked ? "置顶框已锁定" : "置顶框未锁定");
     }
 
-    // ── 管线事件（后台线程 → UI）──
+    // ── 管线事件（后台线程 → UI） ──
+
+    private void OnCaptureStateRaw(object? sender, CaptureStateChangedEventArgs e) => OnCaptureStateChanged(e.State, e.Message);
+
+    private void OnRawFrame(object? sender, CapturedFrame frame) => OnFrameAvailable(frame);
 
     private void OnFrameAvailable(CapturedFrame frame)
     {
         _lastFrame = frame;
-        if (!_firstFrameLogged) { _firstFrameLogged = true; Log($"首帧到达 {frame.Width}x{frame.Height} 序列 {frame.Sequence}"); }
+        if (!_firstFrameLogged)
+        {
+            _firstFrameLogged = true;
+            Log($"首帧到达 {frame.Width}x{frame.Height} 序列 {frame.Sequence}");
+        }
         if (_renderScheduled) return;
         _renderScheduled = true;
         Dispatcher.BeginInvoke(() =>
         {
             _renderScheduled = false;
-            var latest = _lastFrame;
-            if (_previewVisible && latest != null) RenderPreview(latest);
+            RenderCurrent();
         });
     }
 
-    private void OnRecognitionUpdated(RecognitionOutput output)
+    private void OnRecognitionUpdated(EnergyReading reading)
     {
-        _lastOutput = output;
-        Dispatcher.BeginInvoke(() =>
-        {
-            if (_lastLeftGrid != null && _lastLeftGrid != output.Left.GridCount)
-                Log($"回合切换检测：左 {_lastLeftGrid}→{output.Left.GridCount}");
-            if (_lastRightGrid != null && _lastRightGrid != output.Right.GridCount)
-                Log($"回合切换检测：右 {_lastRightGrid}→{output.Right.GridCount}");
-            _lastLeftGrid = output.Left.GridCount;
-            _lastRightGrid = output.Right.GridCount;
-            UpdateCards();
-        });
-    }
-
-    private void OnCountdownUpdated(CountdownSnapshot snapshot)
-    {
-        _lastSnapshot = snapshot;
+        _lastReading = reading;
+        Interlocked.Increment(ref _inferenceCount);
         Dispatcher.BeginInvoke(() =>
         {
             UpdateCards();
-            PreviewOverlay.Visibility = Visibility.Visible;
-            PreviewOverlayText.Text = $"{OverlayFormat.FormatSeconds(snapshot.LeftSeconds)}    {OverlayFormat.FormatSeconds(snapshot.RightSeconds)}";
-            _overlay?.Update(snapshot);
+            if (_previewVisible) RenderCurrent();
         });
     }
 
     private void OnTriggered(TriggerEvent evt)
     {
-        Log($"{evt.Side}值 {evt.OldValue}→{evt.NewValue} 触发，置顶框=15.00");
+        Log($"{(evt.Side == Side.Left ? "左" : "右")}值 {evt.OldValue}→{evt.NewValue} 触发，置顶框={_settings.CountdownSeconds:0.00}");
     }
 
     private void OnCaptureStateChanged(CaptureState state, string? message)
@@ -495,7 +538,7 @@ public partial class MainWindow : Window
                 case CaptureState.Connected:
                     DeviceDot.Background = Green;
                     SetStatus("● 已连接", Green);
-                    VideoText.Text = "视频流 H.264";
+                    VideoText.Text = $"视频流 {_settings.VideoWidth}x{_settings.VideoHeight} H.264";
                     Log((message ?? "视频流已建立") + StderrSuffix());
                     break;
                 case CaptureState.Reconnecting:
@@ -518,29 +561,25 @@ public partial class MainWindow : Window
 
     private void UpdateCards()
     {
-        var o = _lastOutput;
-        if (o == null) return;
-        RecLeftText.Text = FormatSide("左", o.Left, _lastSnapshot.LeftSeconds, _lastSnapshot.LeftStatus);
-        RecRightText.Text = FormatSide("右", o.Right, _lastSnapshot.RightSeconds, _lastSnapshot.RightStatus);
-        RoundText.Text = $"回合切换检测：左 {o.Left.GridCount} · 右 {o.Right.GridCount}" + (o.Left.InLoading || o.Right.InLoading ? "（加载中）" : "");
-    }
-
-    private static string FormatSide(string label, SideRecognition rec, double seconds, SideStatus status)
-    {
-        string statusText = status switch
-        {
-            SideStatus.Counting => "倒计时中",
-            SideStatus.Loading => "加载中",
-            SideStatus.Lost => "丢失",
-            _ => "已归零/正常",
-        };
-        return $"{label}  格数 {rec.GridCount} · 值 {rec.Value} · 倒计时 {seconds:0.00} · {statusText}";
+        var snapshot = _pipeline?.GetSnapshot() ?? CountdownSnapshot.Zero;
+        var reading = _lastReading;
+        RecLeftText.Text = $"左  值 {(reading == null ? "--" : reading.LeftValue.ToString())}（空豆 {reading?.LeftEmptyCount.ToString() ?? "--"}）· 倒计时 {snapshot.LeftSeconds:0.00}";
+        RecRightText.Text = $"右  值 {(reading == null ? "--" : reading.RightValue.ToString())}（空豆 {reading?.RightEmptyCount.ToString() ?? "--"}）· 倒计时 {snapshot.RightSeconds:0.00}";
+        _overlay?.Update(snapshot);
     }
 
     // ── 预览绘制 ──
 
-    private void RenderPreview(CapturedFrame frame)
+    private void RenderCurrent()
     {
+        var frame = _lastFrame;
+        if (frame == null)
+        {
+            PreviewPlaceholder.Visibility = Visibility.Visible;
+            return;
+        }
+        if (!_previewVisible) return;
+
         var bmp = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgra32, null);
         bmp.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), frame.Pixels, frame.Width * 4, 0);
         PreviewImage.Source = bmp;
@@ -550,81 +589,143 @@ public partial class MainWindow : Window
 
         double aw = PreviewImage.ActualWidth, ah = PreviewImage.ActualHeight;
         if (aw <= 0 || ah <= 0) return;
-        double scale = Math.Min(aw / frame.Width, ah / frame.Height);
-        double ox = (aw - frame.Width * scale) / 2;
-        double oy = (ah - frame.Height * scale) / 2;
+        _previewScale = Math.Min(aw / frame.Width, ah / frame.Height);
+        var origin = PreviewImage.TranslatePoint(new Point(0, 0), PreviewCanvas);
+        _previewOffsetX = origin.X + (aw - frame.Width * _previewScale) / 2;
+        _previewOffsetY = origin.Y + (ah - frame.Height * _previewScale) / 2;
 
         PreviewCanvas.Children.Clear();
-        var o = _lastOutput;
-        DrawRoiOverlay(ox, oy, scale, _settings.LeftRoi, Color.FromRgb(0x2E, 0xCC, 0x71), "左", o?.Left);
-        DrawRoiOverlay(ox, oy, scale, _settings.RightRoi, Color.FromRgb(0xE0, 0x3E, 0x3E), "右", o?.Right);
+        var layout = _editDraft;
+        DrawLabelRect(layout.EnergyBar.Left, LeftBarColor, $"左 {(_lastReading == null ? "-" : _lastReading.LeftValue.ToString())}", _lastReading?.LeftDetections);
+        DrawLabelRect(layout.EnergyBar.Right, RightBarColor, $"右 {(_lastReading == null ? "-" : _lastReading.RightValue.ToString())}", _lastReading?.RightDetections);
     }
 
-    private void DrawRoiOverlay(double ox, double oy, double scale, RoiConfig? roi, Color border, string label, SideRecognition? rec)
+    private void DrawLabelRect(LabelRect rect, Color color, string label, IReadOnlyList<EnergyDetection>? detections)
     {
-        if (roi == null) return;
-        var rect = new System.Windows.Shapes.Rectangle
+        if (rect == null) return;
+        double x = _previewOffsetX + rect.LeftTop.X * _lastFrame!.Width * _previewScale;
+        double y = _previewOffsetY + rect.LeftTop.Y * _lastFrame.Height * _previewScale;
+        double w = Math.Max(1, rect.Width * _lastFrame.Width * _previewScale);
+        double h = Math.Max(1, rect.Height * _lastFrame.Height * _previewScale);
+
+        var border = new System.Windows.Shapes.Rectangle
         {
-            Width = roi.Width * scale,
-            Height = roi.Height * scale,
-            Stroke = new SolidColorBrush(border),
+            Width = w,
+            Height = h,
+            Stroke = new SolidColorBrush(color),
             StrokeThickness = 2,
             StrokeDashArray = new DoubleCollection { 4, 2 },
+            Fill = Brushes.Transparent,
         };
-        Canvas.SetLeft(rect, ox + roi.X * scale);
-        Canvas.SetTop(rect, oy + roi.Y * scale);
-        PreviewCanvas.Children.Add(rect);
+        Canvas.SetLeft(border, x);
+        Canvas.SetTop(border, y);
+        PreviewCanvas.Children.Add(border);
 
-        var labelTb = new TextBlock
+        if (detections != null)
         {
-            Text = $"{label} {rec?.Value ?? 0}",
-            Foreground = new SolidColorBrush(border),
+            foreach (var d in detections)
+            {
+                var dot = new System.Windows.Shapes.Rectangle
+                {
+                    Width = Math.Max(3, d.Width * w),
+                    Height = Math.Max(3, d.Height * h),
+                    Fill = new SolidColorBrush(Color.FromArgb(90, DetectionColor.R, DetectionColor.G, DetectionColor.B)),
+                    Stroke = new SolidColorBrush(DetectionColor),
+                    StrokeThickness = 1,
+                };
+                Canvas.SetLeft(dot, x + d.X * w);
+                Canvas.SetTop(dot, y + d.Y * h);
+                PreviewCanvas.Children.Add(dot);
+            }
+        }
+
+        var text = new TextBlock
+        {
+            Text = label,
+            Foreground = new SolidColorBrush(color),
             FontSize = 13,
             FontWeight = FontWeights.Bold,
         };
-        Canvas.SetLeft(labelTb, ox + roi.X * scale);
-        Canvas.SetTop(labelTb, Math.Max(0, oy + roi.Y * scale - 18));
-        PreviewCanvas.Children.Add(labelTb);
+        Canvas.SetLeft(text, x);
+        Canvas.SetTop(text, Math.Max(0, y - 18));
+        PreviewCanvas.Children.Add(text);
+    }
 
-        if (rec?.Centers == null) return;
-        double cy = oy + roi.Y * scale + roi.Height * scale / 2;
-        for (int i = 0; i < rec.Centers.Count && i < rec.Cells.Count; i++)
+    // ── 主界面预览区拖拽调整标注 ──
+
+    private void PreviewCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_lastFrame == null || !_previewVisible || _editor == null) return;
+        var p = e.GetPosition(PreviewCanvas);
+        ToFramePixel(p, out double fx, out double fy);
+        _dragHandle = _editor.HitTest(fx, fy, _lastFrame.Width, _lastFrame.Height);
+        if (_dragHandle == LabelHandle.None) return;
+        _dragLast = p;
+        PreviewCanvas.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void PreviewCanvas_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (_dragHandle == LabelHandle.None || _lastFrame == null || _editor == null) return;
+        var p = e.GetPosition(PreviewCanvas);
+        double dx = (p.X - _dragLast.X) / _previewScale;
+        double dy = (p.Y - _dragLast.Y) / _previewScale;
+        _dragLast = p;
+        _editor.Drag(_dragHandle, dx, dy, _lastFrame.Width, _lastFrame.Height);
+        RenderCurrent();
+    }
+
+    private void PreviewCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_dragHandle == LabelHandle.None) return;
+        _dragHandle = LabelHandle.None;
+        PreviewCanvas.ReleaseMouseCapture();
+        ApplyEditedLabel();
+    }
+
+    /// <summary>把预览区拖拽结果落到设置并生效。</summary>
+    private void ApplyEditedLabel()
+    {
+        if (_editor == null) return;
+        var error = _editDraft.Validate();
+        if (error != null)
         {
-            var cellColor = rec.Cells[i] switch
-            {
-                CellState.Bright => Color.FromRgb(0x4F, 0xC3, 0xF7),
-                CellState.Dark => Color.FromRgb(0x1B, 0x2A, 0x4A),
-                _ => Color.FromRgb(0x88, 0x88, 0x88),
-            };
-            if (rec.Value == 4 && rec.Cells[i] == CellState.Bright)
-                cellColor = Color.FromRgb(0xFF, 0x8C, 0x3C); // 值=4 突变偏橙红
-
-            var cell = new Border
-            {
-                Width = Math.Max(6, 14 * scale),
-                Height = Math.Max(6, 14 * scale),
-                Background = new SolidColorBrush(cellColor),
-                CornerRadius = new CornerRadius(3),
-            };
-            Canvas.SetLeft(cell, ox + (rec.Centers[i] - 7) * scale);
-            Canvas.SetTop(cell, cy - 7 * scale);
-            PreviewCanvas.Children.Add(cell);
+            Log($"区域标注无效（{error}），已撤销本次拖拽");
+            _editDraft = _settings.Label.Clone();
+            _editor = new LabelLayoutEditor(_editDraft);
+            RenderCurrent();
+            return;
         }
+        _settings.Label = _editDraft;
+        _settingsStore.Save(_settings);
+        _recognizer?.UpdateOptions(BuildRecognizerOptions(_settings.Label));
+        UpdateParameterTexts();
+        Log("区域标注已更新（预览区拖拽）");
+    }
+
+    private void ToFramePixel(Point canvasPoint, out double fx, out double fy)
+    {
+        fx = (canvasPoint.X - _previewOffsetX) / _previewScale;
+        fy = (canvasPoint.Y - _previewOffsetY) / _previewScale;
     }
 
     // ── 状态栏与日志 ──
 
     private void UiTick()
     {
-        _pipeline?.Tick(0.1);
         FpsText.Text = $"FPS {(_capture?.CurrentFps ?? 0):F0}";
-        if (++_fpsLogCounter % 50 == 0 && _capture?.State == CaptureState.Connected) Log($"FPS {(_capture?.CurrentFps ?? 0):F0}");
-        if (_pipeline != null)
+        var now = DateTime.UtcNow;
+        if ((now - _inferenceWindowStart).TotalSeconds >= 1.0)
         {
-            _lastSnapshot = _pipeline.Engine.GetSnapshot();
-            _overlay?.Update(_lastSnapshot);
-            UpdateCards();
+            double seconds = (now - _inferenceWindowStart).TotalSeconds;
+            _inferenceFps = Interlocked.Exchange(ref _inferenceCount, 0) / seconds;
+            _inferenceWindowStart = now;
+            InferText.Text = $"推理 {_inferenceFps:F1}/s";
         }
+        if (++_fpsLogCounter % 50 == 0 && _capture?.State == CaptureState.Connected)
+            Log($"FPS {(_capture?.CurrentFps ?? 0):F0} ｜ 推理 {_inferenceFps:F1}/s");
+        UpdateCards();
     }
 
     private void SetStatus(string text, Brush brush)

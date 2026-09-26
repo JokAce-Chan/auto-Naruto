@@ -5,120 +5,345 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
-using NaruttoTimer.Calibration;
 using NaruttoTimer.Capture;
 using NaruttoTimer.Data;
 using NaruttoTimer.Overlay;
-using NaruttoTimer.Recognition;
 using NaruttoTimer.Rules;
 
 namespace NaruttoTimer.App;
 
-/// <summary>取色校准对话框：冻结帧点取像素 → 归类亮/暗 → 生成区间 → 保存。</summary>
-public sealed class CalibrationDialog : Window
+/// <summary>
+/// 区域标注弹窗（对齐源项目 LabelRectActivity + LabelEnergyAIActivity）：
+/// 左右能量条同高同宽、竖直联动；支持数字精确微调与即时测试。
+/// </summary>
+public sealed class LabelConfigDialog : Window
 {
-    private readonly CapturedFrame _frame;
-    private readonly CalibrationStore _store;
-    private readonly AppSettings _settings;
-    private readonly List<(int R, int G, int B)> _brightSamples = new();
-    private readonly List<(int R, int G, int B)> _darkSamples = new();
-    private readonly Image _image = new() { Stretch = Stretch.Uniform, Margin = new Thickness(8) };
-    private readonly TextBlock _rgbText = new() { Foreground = Brushes.LightGray, Margin = new Thickness(8, 4, 8, 0) };
-    private readonly TextBlock _rangeText = new() { Foreground = Brushes.LightGray, Margin = new Thickness(8, 4, 8, 0), TextWrapping = TextWrapping.Wrap };
-    private (int R, int G, int B)? _lastSample;
+    private static readonly Color LeftBarColor = Color.FromRgb(0x2E, 0xCC, 0x71);
+    private static readonly Color RightBarColor = Color.FromRgb(0xE0, 0x3E, 0x3E);
 
-    public CalibrationDialog(CapturedFrame frame, CalibrationStore store, AppSettings settings)
+    private readonly CapturedFrame? _frame;
+    private readonly Func<LabelImageConfig, string>? _tester;
+    private readonly LabelLayoutEditor _editor;
+    private readonly Image _image = new() { Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Top };
+    private readonly Canvas _canvas = new() { Background = Brushes.Transparent };
+    private readonly TextBlock _status = new() { Foreground = Brushes.LightGray, Margin = new Thickness(10, 4, 10, 0), TextWrapping = TextWrapping.Wrap };
+
+    private readonly TextBox _barWidth = new(), _barHeight = new(), _barLeftX = new(), _barRightX = new(), _barTop = new();
+
+    private LabelHandle _dragHandle = LabelHandle.None;
+    private Point _dragLast;
+    private double _scale = 1;
+    private double _offsetX;
+    private double _offsetY;
+
+    public LabelConfigDialog(LabelImageConfig config, CapturedFrame? frame, Func<LabelImageConfig, string>? tester)
     {
         _frame = frame;
-        _store = store;
-        _settings = settings;
-        Title = "取色校准 · 点击菱形像素采样";
-        Width = 920;
-        Height = 660;
+        _tester = tester;
+        _editor = new LabelLayoutEditor(config);
+
+        Title = "区域标注 · 左右能量条（归一化坐标 0~1）";
+        Width = 1040;
+        Height = 760;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(0x18, 0x1B, 0x20));
 
-        var bmp = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgra32, null);
-        bmp.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), frame.Pixels, frame.Width * 4, 0);
-        _image.Source = bmp;
-        _image.MouseLeftButtonDown += OnImageClick;
+        if (frame != null)
+        {
+            var bmp = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgra32, null);
+            bmp.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), frame.Pixels, frame.Width * 4, 0);
+            _image.Source = bmp;
+        }
 
-        var hint = new TextBlock { Text = "提示：点击像素后点 [设为亮] 或 [设为暗]；多点几次效果更好。", Foreground = Brushes.Gray, Margin = new Thickness(8, 6, 8, 0) };
+        _canvas.MouseLeftButtonDown += OnCanvasMouseDown;
+        _canvas.MouseMove += OnCanvasMouseMove;
+        _canvas.MouseLeftButtonUp += OnCanvasMouseUp;
+        _image.SizeChanged += (_, _) => Render();
 
-        var btnBright = MakeButton("设为亮", () => AddSample(_brightSamples, "亮"));
-        var btnDark = MakeButton("设为暗", () => AddSample(_darkSamples, "暗"));
-        var btnClear = MakeButton("清空采样", () => { _brightSamples.Clear(); _darkSamples.Clear(); UpdateRanges(); });
-        var btnSave = MakeButton("保存", () => Save());
+        var preview = new Grid();
+        preview.Children.Add(_image);
+        preview.Children.Add(_canvas);
+        if (frame == null)
+        {
+            preview.Children.Add(new TextBlock
+            {
+                Text = "暂无帧：请先 [连接] 建立视频流后重新打开本弹窗，才能拖拽标注（可先手动输入数值）",
+                Foreground = Brushes.Gray,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+
+        var hint = new TextBlock
+        {
+            Text = "拖动矩形内部移动；拖动边线／四角缩放（能量条左右同宽、同高、同顶联动）。绿色=左条，红色=右条。",
+            Foreground = Brushes.Gray,
+            Margin = new Thickness(10, 8, 10, 0),
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        var btnApply = MakeButton("应用输入", ApplyInputs);
+        var btnRefresh = MakeButton("从画面回读", () => { SyncTextFromConfig(); Render(); });
+        var btnDefault = MakeButton("恢复默认", RestoreDefault);
+        var btnTest = MakeButton("测试识别", TestRecognize);
+        var btnSave = MakeButton("保存", Save);
         var btnCancel = MakeButton("取消", () => DialogResult = false);
 
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8), HorizontalAlignment = HorizontalAlignment.Right };
-        buttons.Children.Add(btnBright);
-        buttons.Children.Add(btnDark);
-        buttons.Children.Add(btnClear);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(10) };
+        buttons.Children.Add(btnApply);
+        buttons.Children.Add(btnRefresh);
+        buttons.Children.Add(btnDefault);
+        buttons.Children.Add(btnTest);
         buttons.Children.Add(btnSave);
         buttons.Children.Add(btnCancel);
 
+        var fields = new Grid { Margin = new Thickness(10, 4, 10, 4) };
+        fields.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        fields.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        fields.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        fields.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        AddField(fields, 0, "能量条公用 (宽,高,顶)", _barWidth, _barHeight, _barTop,
+            new[] { ("w", "宽"), ("h", "高"), ("top", "顶") });
+        AddField(fields, 1, "两侧左边线", _barLeftX, _barRightX,
+            new[] { ("left.x1", "左条左边"), ("right.x1", "右条左边") });
+
+        var bottom = new StackPanel();
+        bottom.Children.Add(fields);
+        bottom.Children.Add(_status);
+        bottom.Children.Add(buttons);
+
         var panel = new DockPanel();
-        DockPanel.SetDock(buttons, Dock.Bottom);
-        panel.Children.Add(buttons);
-        var info = new StackPanel { Orientation = Orientation.Vertical };
-        info.Children.Add(hint);
-        info.Children.Add(_rgbText);
-        info.Children.Add(_rangeText);
-        DockPanel.SetDock(info, Dock.Bottom);
-        panel.Children.Add(info);
-        panel.Children.Add(_image);
+        DockPanel.SetDock(hint, Dock.Top);
+        DockPanel.SetDock(bottom, Dock.Bottom);
+        panel.Children.Add(hint);
+        panel.Children.Add(bottom);
+        panel.Children.Add(preview);
         Content = panel;
 
-        var cal = _store.Load();
-        _rangeText.Text = $"当前保存值：亮 {cal.Bright}；暗 {cal.Dark}";
+        _editor.HitTolerance = 14;
+        SyncTextFromConfig();
+        Render();
     }
 
-    private void OnImageClick(object sender, MouseButtonEventArgs e)
-    {
-        double aw = _image.ActualWidth, ah = _image.ActualHeight;
-        if (aw <= 0 || ah <= 0 || _frame.Width <= 0 || _frame.Height <= 0) return;
-        double scale = Math.Min(aw / _frame.Width, ah / _frame.Height);
-        var pos = e.GetPosition(_image);
-        int x = (int)((pos.X - (aw - _frame.Width * scale) / 2) / scale);
-        int y = (int)((pos.Y - (ah - _frame.Height * scale) / 2) / scale);
-        if (x < 0 || x >= _frame.Width || y < 0 || y >= _frame.Height) return;
-        _frame.GetPixel(x, y, out byte b, out byte g, out byte r, out _);
-        _lastSample = (r, g, b);
-        _rgbText.Text = $"像素({x},{y})  RGB({r},{g},{b})";
-    }
+    public LabelImageConfig? Result { get; private set; }
 
-    private void AddSample(List<(int R, int G, int B)> list, string name)
+    private static void AddField(Grid grid, int row, string title, TextBox a, TextBox b, TextBox c, (string key, string label)[] labels)
+        => AddFieldCore(grid, row, title, new[] { a, b, c }, labels);
+
+    private static void AddField(Grid grid, int row, string title, TextBox a, TextBox b, (string key, string label)[] labels)
+        => AddFieldCore(grid, row, title, new[] { a, b }, labels);
+
+    private static void AddFieldCore(Grid grid, int row, string title, TextBox[] boxes, (string key, string label)[] labels)
     {
-        if (_lastSample == null)
+        var titleBlock = new TextBlock
         {
-            MessageBox.Show(this, "请先在预览图上点击一个像素", "取色校准", MessageBoxButton.OK, MessageBoxImage.Information);
+            Text = title,
+            Foreground = Brushes.LightGray,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 4, 10, 4),
+            FontSize = 12,
+        };
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+        for (int i = 0; i < boxes.Length; i++)
+        {
+            boxes[i].Width = 90;
+            boxes[i].Margin = new Thickness(0, 0, 8, 0);
+            var inner = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            inner.Children.Add(new TextBlock { Text = labels[i].label, Foreground = Brushes.Gray, FontSize = 11, Margin = new Thickness(0, 0, 4, 0) });
+            inner.Children.Add(boxes[i]);
+            panel.Children.Add(inner);
+        }
+        Grid.SetRow(titleBlock, row);
+        Grid.SetColumn(titleBlock, 0);
+        Grid.SetRow(panel, row);
+        Grid.SetColumn(panel, 1);
+        grid.Children.Add(titleBlock);
+        grid.Children.Add(panel);
+    }
+
+    private void SyncTextFromConfig()
+    {
+        var left = _editor.LeftBar;
+        var right = _editor.RightBar;
+        _barWidth.Text = Fmt(left.Width);
+        _barHeight.Text = Fmt(left.Height);
+        _barTop.Text = Fmt(left.LeftTop.Y);
+        _barLeftX.Text = Fmt(left.LeftTop.X);
+        _barRightX.Text = Fmt(right.LeftTop.X);
+    }
+
+    private static string Fmt(double value) => value.ToString("0.#####", CultureInfo.InvariantCulture);
+
+    private void ApplyInputs()
+    {
+        try
+        {
+            double width = Parse(_barWidth);
+            double height = Parse(_barHeight);
+            double top = Parse(_barTop);
+            double leftX = Parse(_barLeftX);
+            double rightX = Parse(_barRightX);
+            SetBar(_editor.LeftBar, leftX, top, width, height);
+            SetBar(_editor.RightBar, rightX, top, width, height);
+
+            var error = _editor.Config.Validate();
+            _status.Text = error ?? "已应用输入（拖动或再微调后点 [保存]）";
+            Render();
+        }
+        catch (Exception ex)
+        {
+            _status.Text = "输入无效：" + ex.Message;
+        }
+    }
+
+    private static void SetBar(LabelRect rect, double x, double y, double width, double height)
+    {
+        rect.LeftTop.X = x;
+        rect.LeftTop.Y = y;
+        rect.RightBottom.X = x + width;
+        rect.RightBottom.Y = y + height;
+    }
+
+    private static double Parse(TextBox box)
+    {
+        if (!double.TryParse(box.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+            throw new FormatException($"“{box.Text}” 不是数字");
+        return value;
+    }
+
+    private void RestoreDefault()
+    {
+        var def = LabelImageConfig.CreateDefault();
+        CopyRect(def.EnergyBar.Left, _editor.LeftBar);
+        CopyRect(def.EnergyBar.Right, _editor.RightBar);
+        SyncTextFromConfig();
+        Render();
+        _status.Text = "已恢复源项目默认标注值";
+    }
+
+    private static void CopyRect(LabelRect source, LabelRect target)
+    {
+        target.LeftTop.X = source.LeftTop.X;
+        target.LeftTop.Y = source.LeftTop.Y;
+        target.RightBottom.X = source.RightBottom.X;
+        target.RightBottom.Y = source.RightBottom.Y;
+    }
+
+    private void TestRecognize()
+    {
+        if (_frame == null)
+        {
+            _status.Text = "暂无帧，无法测试（请先连接视频流）";
             return;
         }
-        list.Add(_lastSample.Value);
-        _rgbText.Text += $"  → 已加入「{name}」";
-        UpdateRanges();
-    }
-
-    private void UpdateRanges()
-    {
-        string bright = _brightSamples.Count > 0 ? ColorRangeBuilder.Build(_brightSamples).ToString() : "（未采样）";
-        string dark = _darkSamples.Count > 0 ? ColorRangeBuilder.Build(_darkSamples).ToString() : "（未采样）";
-        _rangeText.Text = $"当前生成：亮 [{bright}]；暗 [{dark}]";
+        if (_tester == null)
+        {
+            _status.Text = "测试接口不可用";
+            return;
+        }
+        try
+        {
+            _status.Text = _tester(_editor.Config.Clone());
+        }
+        catch (Exception ex)
+        {
+            _status.Text = "测试失败：" + ex.Message;
+        }
     }
 
     private void Save()
     {
-        if (_brightSamples.Count == 0 || _darkSamples.Count == 0)
+        ApplyInputs();
+        var error = _editor.Config.Validate();
+        if (error != null)
         {
-            MessageBox.Show(this, "亮、暗各需至少采样一个像素", "取色校准", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, error, "区域标注", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        var result = new CalibrationResult(ColorRangeBuilder.Build(_brightSamples), ColorRangeBuilder.Build(_darkSamples));
-        _store.Save(result);
-        _settings.BrightRange = result.Bright;
-        _settings.DarkRange = result.Dark;
+        Result = _editor.Config.Clone();
         DialogResult = true;
+    }
+
+    // ── 拖拽 ──
+
+    private void OnCanvasMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_frame == null) return;
+        var p = e.GetPosition(_canvas);
+        ToFramePixel(p, out double fx, out double fy);
+        _dragHandle = _editor.HitTest(fx, fy, _frame.Width, _frame.Height);
+        if (_dragHandle == LabelHandle.None) return;
+        _dragLast = p;
+        _canvas.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void OnCanvasMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_dragHandle == LabelHandle.None || _frame == null) return;
+        var p = e.GetPosition(_canvas);
+        double dx = (p.X - _dragLast.X) / _scale;
+        double dy = (p.Y - _dragLast.Y) / _scale;
+        _dragLast = p;
+        _editor.Drag(_dragHandle, dx, dy, _frame.Width, _frame.Height);
+        Render();
+    }
+
+    private void OnCanvasMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_dragHandle == LabelHandle.None) return;
+        _dragHandle = LabelHandle.None;
+        _canvas.ReleaseMouseCapture();
+        SyncTextFromConfig();
+    }
+
+    private void ToFramePixel(Point canvasPoint, out double fx, out double fy)
+    {
+        fx = (canvasPoint.X - _offsetX) / _scale;
+        fy = (canvasPoint.Y - _offsetY) / _scale;
+    }
+
+    private void Render()
+    {
+        if (_frame == null) return;
+        double aw = _image.ActualWidth, ah = _image.ActualHeight;
+        if (aw <= 0 || ah <= 0) return;
+        _scale = Math.Min(aw / _frame.Width, ah / _frame.Height);
+        var origin = _image.TranslatePoint(new Point(0, 0), _canvas);
+        _offsetX = origin.X + (aw - _frame.Width * _scale) / 2;
+        _offsetY = origin.Y + (ah - _frame.Height * _scale) / 2;
+
+        _canvas.Children.Clear();
+        DrawRect(_editor.LeftBar, LeftBarColor, "左");
+        DrawRect(_editor.RightBar, RightBarColor, "右");
+    }
+
+    private void DrawRect(LabelRect rect, Color color, string label)
+    {
+        if (rect == null || _frame == null) return;
+        double x = _offsetX + rect.LeftTop.X * _frame.Width * _scale;
+        double y = _offsetY + rect.LeftTop.Y * _frame.Height * _scale;
+        double w = Math.Max(1, rect.Width * _frame.Width * _scale);
+        double h = Math.Max(1, rect.Height * _frame.Height * _scale);
+
+        var border = new System.Windows.Shapes.Rectangle
+        {
+            Width = w,
+            Height = h,
+            Stroke = new SolidColorBrush(color),
+            StrokeThickness = 2,
+            StrokeDashArray = new DoubleCollection { 4, 2 },
+            Fill = Brushes.Transparent,
+        };
+        Canvas.SetLeft(border, x);
+        Canvas.SetTop(border, y);
+        _canvas.Children.Add(border);
+
+        var text = new TextBlock { Text = label, Foreground = new SolidColorBrush(color), FontSize = 13, FontWeight = FontWeights.Bold };
+        Canvas.SetLeft(text, x);
+        Canvas.SetTop(text, Math.Max(0, y - 18));
+        _canvas.Children.Add(text);
     }
 
     private static Button MakeButton(string text, Action onClick)
@@ -133,150 +358,6 @@ public sealed class CalibrationDialog : Window
             BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3B, 0x47)),
             Cursor = Cursors.Hand,
         };
-        btn.Click += (_, _) => onClick();
-        return btn;
-    }
-}
-
-/// <summary>区域配置对话框：左右 ROI 坐标微调 + 测试识别 + 保存。</summary>
-public sealed class RoiDialog : Window
-{
-    private readonly AppSettings _settings;
-    private readonly CapturedFrame? _frame;
-    private readonly Recognizer? _recognizer;
-    private readonly TextBlock _result = new() { Foreground = Brushes.LightGray, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8) };
-
-    private readonly TextBox _lx = new(), _ly = new(), _lw = new(), _lh = new();
-    private readonly TextBox _rx = new(), _ry = new(), _rw = new(), _rh = new();
-
-    public RoiDialog(AppSettings settings, CapturedFrame? frame, Recognizer? recognizer)
-    {
-        _settings = settings;
-        _frame = frame;
-        _recognizer = recognizer;
-        Title = "区域配置 · 左右菱形区域坐标（相对当前预览帧）";
-        Width = 620;
-        Height = 460;
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(0x18, 0x1B, 0x20));
-
-        var hint = new TextBlock
-        {
-            Text = "坐标格式：x,y,宽,高。可先 [测试识别] 验证，再 [保存]。6 格自动向屏幕中心延伸。",
-            Foreground = Brushes.Gray,
-            Margin = new Thickness(8, 6, 8, 0),
-            TextWrapping = TextWrapping.Wrap,
-        };
-
-        _lx.Text = settings.LeftRoi?.X.ToString() ?? "";
-        _ly.Text = settings.LeftRoi?.Y.ToString() ?? "";
-        _lw.Text = settings.LeftRoi?.Width.ToString() ?? "";
-        _lh.Text = settings.LeftRoi?.Height.ToString() ?? "";
-        _rx.Text = settings.RightRoi?.X.ToString() ?? "";
-        _ry.Text = settings.RightRoi?.Y.ToString() ?? "";
-        _rw.Text = settings.RightRoi?.Width.ToString() ?? "";
-        _rh.Text = settings.RightRoi?.Height.ToString() ?? "";
-
-        var grid = new Grid { Margin = new Thickness(8) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Auto) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        int row = 0;
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        AddRoiRow(grid, row++, "区域A（左）", _lx, _ly, _lw, _lh);
-        AddRoiRow(grid, row++, "区域B（右）", _rx, _ry, _rw, _rh);
-
-        var btnTest = MakeButton("测试识别", TestRecognize);
-        var btnSave = MakeButton("保存", Save);
-        var btnClear = MakeButton("恢复默认", () =>
-        {
-            var d = AppSettings.DefaultLeftRoi; var r = AppSettings.DefaultRightRoi;
-            _lx.Text = d.X.ToString(); _ly.Text = d.Y.ToString(); _lw.Text = d.Width.ToString(); _lh.Text = d.Height.ToString();
-            _rx.Text = r.X.ToString(); _ry.Text = r.Y.ToString(); _rw.Text = r.Width.ToString(); _rh.Text = r.Height.ToString();
-            _result.Text = "已填入默认坐标，可 [测试识别] 验证";
-        });
-        var btnCancel = MakeButton("取消", () => DialogResult = false);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(8) };
-        buttons.Children.Add(btnTest);
-        buttons.Children.Add(btnSave);
-        buttons.Children.Add(btnClear);
-        buttons.Children.Add(btnCancel);
-
-        var panel = new DockPanel();
-        DockPanel.SetDock(buttons, Dock.Bottom);
-        panel.Children.Add(buttons);
-        var body = new StackPanel();
-        body.Children.Add(hint);
-        body.Children.Add(grid);
-        body.Children.Add(_result);
-        panel.Children.Add(body);
-        Content = panel;
-    }
-
-    private void AddRoiRow(Grid grid, int row, string label, TextBox x, TextBox y, TextBox w, TextBox h)
-    {
-        var lbl = new TextBlock { Text = label, Foreground = Brushes.LightGray, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 4, 8, 4) };
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
-        foreach (var (tb, hint) in new[] { (x, "x"), (y, "y"), (w, "宽"), (h, "高") })
-        {
-            tb.Width = 70;
-            tb.Margin = new Thickness(0, 0, 6, 0);
-            var inner = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            inner.Children.Add(new TextBlock { Text = hint, Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 4, 0) });
-            inner.Children.Add(tb);
-            panel.Children.Add(inner);
-        }
-        Grid.SetRow(lbl, row);
-        Grid.SetColumn(lbl, 0);
-        Grid.SetRow(panel, row);
-        Grid.SetColumn(panel, 1);
-        grid.Children.Add(lbl);
-        grid.Children.Add(panel);
-    }
-
-    private void TestRecognize()
-    {
-        var left = ParseRoi(_lx, _ly, _lw, _lh);
-        var right = ParseRoi(_rx, _ry, _rw, _rh);
-        if (_frame == null) { _result.Text = "暂无帧，请先连接并预览"; return; }
-        if (_recognizer == null) { _result.Text = "识别器不可用"; return; }
-        var opts = new RecognizerOptions(
-            _settings.BrightRange, _settings.DarkRange, left, right,
-            OrangeRange: RecognizerOptions.DefaultOrangeRange,
-            DebounceFrames: Math.Max(1, _settings.DebounceFrames),
-            LoadingSeconds: Math.Max(0.05, _settings.LoadingSeconds),
-            GridJudgeSeconds: Math.Max(0.1, _settings.GridJudgeSeconds));
-        var rec = new Recognizer(opts);
-        var output = rec.Recognize(_frame);
-        _result.Text =
-            $"左：格数 {output.Left.GridCount} · 值 {output.Left.Value} · 加载 {output.Left.InLoading}    " +
-            $"右：格数 {output.Right.GridCount} · 值 {output.Right.Value} · 加载 {output.Right.InLoading}";
-    }
-
-    private static RoiConfig? ParseRoi(TextBox x, TextBox y, TextBox w, TextBox h)
-    {
-        if (int.TryParse(x.Text, out int xi) && int.TryParse(y.Text, out int yi)
-            && int.TryParse(w.Text, out int wi) && int.TryParse(h.Text, out int hi)
-            && wi > 0 && hi > 0)
-        {
-            return new RoiConfig(xi, yi, wi, hi);
-        }
-        return null;
-    }
-
-    private void Save()
-    {
-        _settings.LeftRoi = ParseRoi(_lx, _ly, _lw, _lh);
-        _settings.RightRoi = ParseRoi(_rx, _ry, _rw, _rh);
-        DialogResult = true;
-    }
-
-    private static Button MakeButton(string text, Action onClick)
-    {
-        var btn = new Button { Content = text, Padding = new Thickness(14, 5, 14, 5), Margin = new Thickness(0, 0, 8, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0x24, 0x29, 0x33)), Foreground = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3B, 0x47)), Cursor = Cursors.Hand };
         btn.Click += (_, _) => onClick();
         return btn;
     }
@@ -301,19 +382,18 @@ public sealed class DataDialog : Window
         {
             Columns =
             {
-                new GridViewColumn { Header = "时间", Width = 150, DisplayMemberBinding = new System.Windows.Data.Binding("Timestamp") { StringFormat = "yyyy-MM-dd HH:mm:ss.fff" } },
-                new GridViewColumn { Header = "侧", Width = 50, DisplayMemberBinding = new System.Windows.Data.Binding("Side") },
-                new GridViewColumn { Header = "格数", Width = 50, DisplayMemberBinding = new System.Windows.Data.Binding("GridCount") },
-                new GridViewColumn { Header = "旧值", Width = 50, DisplayMemberBinding = new System.Windows.Data.Binding("OldValue") },
-                new GridViewColumn { Header = "新值", Width = 50, DisplayMemberBinding = new System.Windows.Data.Binding("NewValue") },
+                new GridViewColumn { Header = "时间", Width = 170, DisplayMemberBinding = new System.Windows.Data.Binding("Timestamp") { StringFormat = "yyyy-MM-dd HH:mm:ss.fff" } },
+                new GridViewColumn { Header = "侧", Width = 60, DisplayMemberBinding = new System.Windows.Data.Binding("Side") },
+                new GridViewColumn { Header = "旧值", Width = 60, DisplayMemberBinding = new System.Windows.Data.Binding("OldValue") },
+                new GridViewColumn { Header = "新值", Width = 60, DisplayMemberBinding = new System.Windows.Data.Binding("NewValue") },
                 new GridViewColumn { Header = "动作", Width = 200, DisplayMemberBinding = new System.Windows.Data.Binding("Action") },
             }
         };
 
-        var btnRefresh = MakeButton("刷新", () => Refresh());
-        var btnCsv = MakeButton("导出 CSV", () => ExportCsv());
-        var btnJson = MakeButton("导出 JSON", () => ExportJson());
-        var btnClose = MakeButton("关闭", () => Close());
+        var btnRefresh = MakeButton("刷新", Refresh);
+        var btnCsv = MakeButton("导出 CSV", ExportCsv);
+        var btnJson = MakeButton("导出 JSON", ExportJson);
+        var btnClose = MakeButton("关闭", Close);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8), HorizontalAlignment = HorizontalAlignment.Right };
         buttons.Children.Add(btnRefresh);
         buttons.Children.Add(btnCsv);
@@ -352,19 +432,27 @@ public sealed class DataDialog : Window
 
     private static Button MakeButton(string text, Action onClick)
     {
-        var btn = new Button { Content = text, Padding = new Thickness(14, 5, 14, 5), Margin = new Thickness(0, 0, 8, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0x24, 0x29, 0x33)), Foreground = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3B, 0x47)), Cursor = Cursors.Hand };
+        var btn = new Button
+        {
+            Content = text,
+            Padding = new Thickness(14, 5, 14, 5),
+            Margin = new Thickness(0, 0, 8, 0),
+            Background = new SolidColorBrush(Color.FromRgb(0x24, 0x29, 0x33)),
+            Foreground = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3B, 0x47)),
+            Cursor = Cursors.Hand,
+        };
         btn.Click += (_, _) => onClick();
         return btn;
     }
 }
 
-/// <summary>设置对话框：设备、识别参数、路径、置顶框颜色。</summary>
+/// <summary>设置对话框：设备、路径、识别参数、置顶框颜色。</summary>
 public sealed class SettingsDialog : Window
 {
     private readonly AppSettings _settings;
-    private readonly TextBox _device = new(), _countdown = new(), _loading = new(), _debounce = new();
+    private readonly TextBox _device = new(), _countdown = new(), _stable = new(), _interval = new();
+    private readonly TextBox _confidence = new(), _nms = new(), _gray = new();
     private readonly TextBox _adb = new(), _scrcpy = new(), _dataDir = new();
     private readonly TextBox _leftColor = new(), _rightColor = new();
 
@@ -372,15 +460,18 @@ public sealed class SettingsDialog : Window
     {
         _settings = settings;
         Title = "设置";
-        Width = 520;
-        Height = 560;
+        Width = 560;
+        Height = 640;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(0x18, 0x1B, 0x20));
 
         _device.Text = settings.DeviceSerial;
-        _countdown.Text = settings.CountdownSeconds.ToString("0.#", CultureInfo.InvariantCulture);
-        _loading.Text = settings.LoadingSeconds.ToString("0.##", CultureInfo.InvariantCulture);
-        _debounce.Text = settings.DebounceFrames.ToString();
+        _countdown.Text = settings.CountdownSeconds.ToString("0.##", CultureInfo.InvariantCulture);
+        _stable.Text = settings.StableFrames.ToString(CultureInfo.InvariantCulture);
+        _interval.Text = settings.InferenceIntervalMs.ToString(CultureInfo.InvariantCulture);
+        _confidence.Text = settings.ConfidenceThreshold.ToString("0.##", CultureInfo.InvariantCulture);
+        _nms.Text = settings.NmsThreshold.ToString("0.##", CultureInfo.InvariantCulture);
+        _gray.Text = settings.TraditionalGrayThreshold.ToString(CultureInfo.InvariantCulture);
         _adb.Text = settings.AdbPath;
         _scrcpy.Text = settings.ScrcpyPath;
         _dataDir.Text = settings.DataDirectory;
@@ -389,9 +480,12 @@ public sealed class SettingsDialog : Window
 
         var form = new StackPanel { Margin = new Thickness(12) };
         AddRow(form, "设备序列号", _device);
-        AddRow(form, "倒计时时长（秒，默认 15）", _countdown);
-        AddRow(form, "加载判定时长（秒，默认 0.3）", _loading);
-        AddRow(form, "防抖帧数（默认 2）", _debounce);
+        AddRow(form, "替换身倒计时（秒，默认 14.5）", _countdown);
+        AddRow(form, "稳定判定帧数（默认 3）", _stable);
+        AddRow(form, "推理间隔（毫秒，默认 125；调大可降低 CPU 占用）", _interval);
+        AddRow(form, "AI 置信度阈值（默认 0.7）", _confidence);
+        AddRow(form, "NMS IoU 阈值（默认 0.25）", _nms);
+        AddRow(form, "传统模式灰度阈值（默认 110）", _gray);
         AddRow(form, "adb 路径（留空自动查找）", _adb);
         AddRow(form, "scrcpy/FFmpeg 目录（留空自动查找）", _scrcpy);
         AddRow(form, "数据目录（默认 data）", _dataDir);
@@ -407,17 +501,15 @@ public sealed class SettingsDialog : Window
         var panel = new DockPanel();
         DockPanel.SetDock(buttons, Dock.Bottom);
         panel.Children.Add(buttons);
-        var scroll = new ScrollViewer { Content = form };
-        panel.Children.Add(scroll);
+        panel.Children.Add(new ScrollViewer { Content = form });
         Content = panel;
     }
 
-    private void AddRow(StackPanel parent, string label, TextBox tb)
+    private static void AddRow(StackPanel parent, string label, TextBox box)
     {
-        var lbl = new TextBlock { Text = label, Foreground = Brushes.LightGray, Margin = new Thickness(0, 8, 0, 2) };
-        tb.Margin = new Thickness(0, 0, 0, 4);
-        parent.Children.Add(lbl);
-        parent.Children.Add(tb);
+        parent.Children.Add(new TextBlock { Text = label, Foreground = Brushes.LightGray, Margin = new Thickness(0, 8, 0, 2) });
+        box.Margin = new Thickness(0, 0, 0, 4);
+        parent.Children.Add(box);
     }
 
     private void Save()
@@ -425,24 +517,34 @@ public sealed class SettingsDialog : Window
         try
         {
             if (string.IsNullOrWhiteSpace(_device.Text)) throw new ArgumentException("设备序列号不能为空");
-            double countdown = double.Parse(_countdown.Text, CultureInfo.InvariantCulture);
-            double loading = double.Parse(_loading.Text, CultureInfo.InvariantCulture);
-            int debounce = int.Parse(_debounce.Text, CultureInfo.InvariantCulture);
-            if (countdown <= 0) throw new ArgumentException("倒计时时长必须大于 0");
-            if (loading <= 0) throw new ArgumentException("加载判定时长必须大于 0");
-            if (debounce < 1) throw new ArgumentException("防抖帧数至少为 1");
+            double countdown = ParseDouble(_countdown, "替换身倒计时");
+            int stable = ParseInt(_stable, "稳定判定帧数");
+            int interval = ParseInt(_interval, "推理间隔");
+            double confidence = ParseDouble(_confidence, "AI 置信度阈值");
+            double nms = ParseDouble(_nms, "NMS 阈值");
+            int gray = ParseInt(_gray, "传统模式灰度阈值");
+            if (countdown <= 0) throw new ArgumentException("替换身倒计时必须大于 0");
+            if (stable < 1) throw new ArgumentException("稳定判定帧数至少为 1");
+            if (interval < 16) throw new ArgumentException("推理间隔至少 16 毫秒");
+            if (confidence <= 0 || confidence > 1) throw new ArgumentException("置信度阈值需在 0~1 之间");
+            if (nms <= 0 || nms > 1) throw new ArgumentException("NMS 阈值需在 0~1 之间");
+            if (gray < 0 || gray > 255) throw new ArgumentException("灰度阈值需在 0~255 之间");
             OverlayFormat.ParseHexColor(_leftColor.Text);
             OverlayFormat.ParseHexColor(_rightColor.Text);
 
             _settings.DeviceSerial = _device.Text.Trim();
             _settings.CountdownSeconds = countdown;
-            _settings.LoadingSeconds = loading;
-            _settings.DebounceFrames = debounce;
+            _settings.StableFrames = stable;
+            _settings.InferenceIntervalMs = interval;
+            _settings.ConfidenceThreshold = confidence;
+            _settings.NmsThreshold = nms;
+            _settings.TraditionalGrayThreshold = gray;
             _settings.AdbPath = _adb.Text.Trim();
             _settings.ScrcpyPath = _scrcpy.Text.Trim();
             _settings.DataDirectory = _dataDir.Text.Trim();
             _settings.OverlayLeftColor = _leftColor.Text.Trim();
             _settings.OverlayRightColor = _rightColor.Text.Trim();
+            _settings.Normalize();
             DialogResult = true;
         }
         catch (Exception ex)
@@ -451,11 +553,32 @@ public sealed class SettingsDialog : Window
         }
     }
 
+    private static double ParseDouble(TextBox box, string name)
+    {
+        if (!double.TryParse(box.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+            throw new ArgumentException($"{name} 不是有效数字");
+        return value;
+    }
+
+    private static int ParseInt(TextBox box, string name)
+    {
+        if (!int.TryParse(box.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+            throw new ArgumentException($"{name} 不是有效整数");
+        return value;
+    }
+
     private static Button MakeButton(string text, Action onClick)
     {
-        var btn = new Button { Content = text, Padding = new Thickness(14, 5, 14, 5), Margin = new Thickness(0, 0, 8, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0x24, 0x29, 0x33)), Foreground = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3B, 0x47)), Cursor = Cursors.Hand };
+        var btn = new Button
+        {
+            Content = text,
+            Padding = new Thickness(14, 5, 14, 5),
+            Margin = new Thickness(0, 0, 8, 0),
+            Background = new SolidColorBrush(Color.FromRgb(0x24, 0x29, 0x33)),
+            Foreground = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3B, 0x47)),
+            Cursor = Cursors.Hand,
+        };
         btn.Click += (_, _) => onClick();
         return btn;
     }

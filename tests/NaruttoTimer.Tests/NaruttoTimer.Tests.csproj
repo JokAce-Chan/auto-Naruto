@@ -6,12 +6,21 @@
     <ProjectReference Include="..\..\src\NaruttoTimer.Rules\NaruttoTimer.Rules.csproj" />
     <ProjectReference Include="..\..\src\NaruttoTimer.Overlay\NaruttoTimer.Overlay.csproj" />
     <ProjectReference Include="..\..\src\NaruttoTimer.Data\NaruttoTimer.Data.csproj" />
-    <ProjectReference Include="..\..\src\NaruttoTimer.Calibration\NaruttoTimer.Calibration.csproj" />
     <ProjectReference Include="..\..\src\NaruttoTimer.App\NaruttoTimer.App.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260627" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="Assets\screenrecord-test.h264" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 识别资源（best.onnx）供 ONNX 测试直接使用 -->
+    <None Include="..\..\src\NaruttoTimer.Recognition\assets\**"
+          Link="assets\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>

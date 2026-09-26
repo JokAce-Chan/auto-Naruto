@@ -62,8 +62,9 @@ public static class PublishTests
         Check.True(File.Exists(doc), "使用说明应存在");
         var text = File.ReadAllText(doc);
         Check.True(text.Contains("安装与启动"), "含安装与启动");
-        Check.True(text.Contains("区域框选"), "含区域框选");
-        Check.True(text.Contains("取色校准"), "含取色校准");
+        Check.True(text.Contains("区域标注"), "含区域标注（拖拽/输入框）");
+        Check.True(text.Contains("识别模式"), "含识别模式（AI / 传统）");
+        Check.False(text.Contains("取色校准"), "不应再提及已删除的取色校准");
         Check.True(text.Contains("置顶框设置"), "含置顶框设置");
         Check.True(text.Contains("数据保存"), "含数据保存");
     }

@@ -6,7 +6,6 @@
     <ProjectReference Include="..\NaruttoTimer.Rules\NaruttoTimer.Rules.csproj" />
     <ProjectReference Include="..\NaruttoTimer.Overlay\NaruttoTimer.Overlay.csproj" />
     <ProjectReference Include="..\NaruttoTimer.Data\NaruttoTimer.Data.csproj" />
-    <ProjectReference Include="..\NaruttoTimer.Calibration\NaruttoTimer.Calibration.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

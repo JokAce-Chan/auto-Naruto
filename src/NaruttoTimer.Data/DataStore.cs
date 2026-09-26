@@ -85,13 +85,12 @@ public sealed class DataStore : IDataStore
     public void ExportCsv(string path)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Timestamp,Side,GridCount,OldValue,NewValue,Action");
+        sb.AppendLine("Timestamp,Side,OldValue,NewValue,Action");
         foreach (var evt in GetTriggers())
         {
             sb.AppendLine(string.Join(",",
                 evt.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture),
                 evt.Side,
-                evt.GridCount,
                 evt.OldValue,
                 evt.NewValue,
                 CsvEscape(evt.Action)));

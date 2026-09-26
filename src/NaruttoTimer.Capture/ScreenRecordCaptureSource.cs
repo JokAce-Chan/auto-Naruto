@@ -8,7 +8,6 @@ public sealed record CaptureOptions(
     string DeviceSerial,
     int VideoWidth = 1280,
     int VideoHeight = 720,
-    int CropTopRows = 150,
     int MaxFps = 30,
     long BitRate = 4_000_000,
     int TimeLimitSeconds = 180);
@@ -138,21 +137,12 @@ public sealed class ScreenRecordCaptureSource : ICaptureSource
 
     private void OnFrameDecoded(int width, int height, byte[] bgra, DateTime timestamp)
     {
-        int crop = Math.Clamp(_options.CropTopRows, 0, height);
-        byte[] pixels = bgra;
-        if (crop > 0 && crop < height)
-        {
-            int rowBytes = width * 4;
-            pixels = new byte[rowBytes * crop];
-            Buffer.BlockCopy(bgra, 0, pixels, 0, rowBytes * crop);
-            height = crop;
-        }
         _fps.Push();
         FrameReady?.Invoke(this, new CapturedFrame
         {
             Width = width,
             Height = height,
-            Pixels = pixels,
+            Pixels = bgra,
             Timestamp = timestamp,
             Sequence = Interlocked.Increment(ref _sequence),
         });

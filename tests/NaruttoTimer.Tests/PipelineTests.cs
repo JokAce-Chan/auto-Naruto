@@ -6,56 +6,54 @@ using NaruttoTimer.Rules;
 
 namespace NaruttoTimer.Tests;
 
-/// <summary>P6 管线控制器集成测试（fake 采集源 + 真实识别/规则 + 临时数据存储）。</summary>
+/// <summary>P6 管线控制器集成测试（fake 采集源 + fake 识别器 + 真实规则引擎 + 临时数据存储）。</summary>
 public static class PipelineTests
 {
-    private static readonly RoiConfig TestRoi = new(10, 10, 220, 70);
+    private sealed class FakeClock
+    {
+        public DateTime Now { get; set; } = new(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+        public void Advance(double seconds) => Now = Now.AddSeconds(seconds);
+    }
 
-    private static (PipelineController pipeline, FakeCapture capture, DataStore store, string dir) Create()
+    private static (PipelineController pipeline, FakeCapture capture, FakeRecognizer recognizer, DataStore store, string dir, FakeClock clock) Create()
     {
         var capture = new FakeCapture();
-        var recognizer = new Recognizer(new RecognizerOptions(
-            new ColorRange(180, 255, 120, 255, 120, 255),
-            new ColorRange(0, 90, 70, 165, 85, 180),
-            TestRoi, null,
-            OrangeRange: new ColorRange(180, 255, 40, 150, 0, 130),
-            DebounceFrames: 1,
-            LoadingSeconds: 0.3));
-        var engine = new CountdownEngine(15.0);
+        var recognizer = new FakeRecognizer();
+        var clock = new FakeClock();
+        var engine = new EnergyRuleEngine(14.5, 3, () => clock.Now);
         var dir = TestTemp.NewDir();
         var store = new DataStore(dir);
-        var pipeline = new PipelineController(capture, recognizer, engine, store);
-        return (pipeline, capture, store, dir);
+        var pipeline = new PipelineController(capture, recognizer, engine, store) { InferenceIntervalMs = 0 };
+        return (pipeline, capture, recognizer, store, dir, clock);
     }
 
-    private static CapturedFrame FourBright(DateTime ts, int brightCount)
+    private static CapturedFrame Frame(DateTime ts) => new()
     {
-        var specs = new List<FrameFactory.CellSpec>();
-        for (int i = 0; i < 4; i++)
-        {
-            specs.Add(new FrameFactory.CellSpec(30 + i * 50, 45, 14,
-                i < brightCount ? ((byte)200, (byte)230, (byte)255) : ((byte)20, (byte)110, (byte)125)));
-        }
-        return FrameFactory.Create(240, 90, specs, ts, (30, 50, 62));
-    }
+        Width = 4,
+        Height = 2,
+        Pixels = new byte[4 * 2 * 4],
+        Timestamp = ts,
+    };
 
     [Fact]
-    public static void 启动后_帧流驱动_减1触发_并写入数据存储()
+    public static void 启动后_稳定三帧减1触发_并写入数据存储()
     {
-        var (pipeline, capture, store, dir) = Create();
+        var (pipeline, capture, recognizer, store, dir, _) = Create();
         try
         {
             TriggerEvent? trigger = null;
             pipeline.Triggered += evt => trigger = evt;
             pipeline.Start();
 
+            // 需先稳定在 4（3 帧）建立基线，再稳定到 3（3 帧）才判定减 1
+            recognizer.Enqueue(4, 4, 4, 3, 3, 3);
             var t0 = DateTime.UtcNow;
-            capture.Emit(FourBright(t0, 4));
-            capture.Emit(FourBright(t0 + TimeSpan.FromMilliseconds(40), 3));
+            for (int i = 0; i < 6; i++) capture.Emit(Frame(t0.AddMilliseconds(i * 10)));
 
             Check.True(pipeline.IsRunning, "管线运行中");
-            Check.True(trigger != null, "值 4→3 应触发");
-            Check.Equal(4, trigger!.OldValue, "旧值");
+            Check.True(trigger != null, "稳定值 4→3 应触发");
+            Check.Equal(Side.Left, trigger!.Side, "左值减 1 属左侧");
+            Check.Equal(4, trigger.OldValue, "旧值");
             Check.Equal(3, trigger.NewValue, "新值");
             Check.Equal(1, store.GetTriggers().Count, "数据存储应有 1 条触发事件");
         }
@@ -67,20 +65,71 @@ public static class PipelineTests
     }
 
     [Fact]
-    public static void 触发后_Tick_倒计时递减并通知()
+    public static void 触发后_倒计时按时间递减_归零后保持0()
     {
-        var (pipeline, capture, store, dir) = Create();
+        var (pipeline, capture, recognizer, store, dir, clock) = Create();
         try
         {
-            double? lastSeconds = null;
-            pipeline.CountdownUpdated += s => lastSeconds = s.LeftSeconds;
             pipeline.Start();
+            recognizer.Enqueue(4, 4, 4, 3, 3, 3);
             var t0 = DateTime.UtcNow;
-            capture.Emit(FourBright(t0, 4));
-            capture.Emit(FourBright(t0 + TimeSpan.FromMilliseconds(40), 3));
+            for (int i = 0; i < 6; i++) capture.Emit(Frame(t0.AddMilliseconds(i * 10)));
 
-            pipeline.Tick(1.0);
-            Check.True(lastSeconds.HasValue && Math.Abs(lastSeconds.Value - 14.0) < 0.001, "倒计时应递减到 14.00");
+            var snap = pipeline.GetSnapshot();
+            Check.Near(14.5, snap.LeftSeconds, 0.001, "触发瞬间应为 14.50");
+            Check.Near(0.0, snap.RightSeconds, 0.001, "右侧未触发保持 0.00");
+
+            clock.Advance(1.0);
+            Check.Near(13.5, pipeline.GetSnapshot().LeftSeconds, 0.001, "1s 后应为 13.50");
+
+            clock.Advance(100);
+            Check.Near(0.0, pipeline.GetSnapshot().LeftSeconds, 0.001, "超时后归零且保持 0.00");
+        }
+        finally
+        {
+            pipeline.Dispose();
+            TestTemp.Delete(dir);
+        }
+    }
+
+    [Fact]
+    public static void 每帧读数_都参与判定()
+    {
+        var (pipeline, capture, recognizer, store, dir, _) = Create();
+        try
+        {
+            EnergyReading? last = null;
+            pipeline.RecognitionUpdated += r => last = r;
+            pipeline.Start();
+
+            recognizer.EnqueueReading(new EnergyReading(2, 1, 2, 3, Array.Empty<EnergyDetection>(), Array.Empty<EnergyDetection>()));
+            capture.Emit(Frame(DateTime.UtcNow));
+
+            Check.True(last != null, "应上报识别结果");
+            Check.Equal(2, last!.LeftValue, "读数原样参与判定，不被门控");
+            Check.Equal(1, last.RightValue, "读数原样参与判定，不被门控");
+            Check.Equal(0, store.GetTriggers().Count, "单帧读数不触发");
+        }
+        finally
+        {
+            pipeline.Dispose();
+            TestTemp.Delete(dir);
+        }
+    }
+
+    [Fact]
+    public static void 推理间隔节流_跳过过密帧()
+    {
+        var (pipeline, capture, recognizer, store, dir, _) = Create();
+        try
+        {
+            pipeline.InferenceIntervalMs = 60_000;
+            pipeline.Start();
+            recognizer.Enqueue(4, 3);
+            var t0 = DateTime.UtcNow;
+            capture.Emit(Frame(t0));
+            capture.Emit(Frame(t0.AddMilliseconds(5)));
+            Check.Equal(1, recognizer.Calls, "间隔内仅应识别首帧");
         }
         finally
         {
@@ -92,22 +141,21 @@ public static class PipelineTests
     [Fact]
     public static void 停止后_不再处理帧()
     {
-        var (pipeline, capture, store, dir) = Create();
+        var (pipeline, capture, recognizer, store, dir, _) = Create();
         try
         {
-            int triggers = 0;
-            pipeline.Triggered += _ => triggers++;
+            int recognitions = 0;
+            pipeline.RecognitionUpdated += _ => recognitions++;
             pipeline.Start();
+            recognizer.Enqueue(4, 4, 4, 3, 3, 3);
             var t0 = DateTime.UtcNow;
-            capture.Emit(FourBright(t0, 4));
-            capture.Emit(FourBright(t0 + TimeSpan.FromMilliseconds(40), 3));
-            Check.Equal(1, triggers, "停止前已触发 1 次");
+            for (int i = 0; i < 3; i++) capture.Emit(Frame(t0.AddMilliseconds(i * 10)));
+            Check.Equal(3, recognitions, "停止前识别 3 次");
 
             pipeline.Stop();
             Check.False(pipeline.IsRunning, "已停止");
-            capture.Emit(FourBright(t0 + TimeSpan.FromMilliseconds(80), 4));
-            capture.Emit(FourBright(t0 + TimeSpan.FromMilliseconds(120), 3));
-            Check.Equal(1, triggers, "停止后不再触发");
+            capture.Emit(Frame(t0.AddMilliseconds(40)));
+            Check.Equal(3, recognitions, "停止后不再识别");
         }
         finally
         {
@@ -119,7 +167,7 @@ public static class PipelineTests
     [Fact]
     public static void 采集状态变化_向上传播()
     {
-        var (pipeline, capture, store, dir) = Create();
+        var (pipeline, capture, recognizer, store, dir, _) = Create();
         try
         {
             CaptureState? state = null;
@@ -138,17 +186,19 @@ public static class PipelineTests
     }
 
     [Fact]
-    public static void 每帧_识别结果事件()
+    public static void 每帧_触发帧画面事件()
     {
-        var (pipeline, capture, store, dir) = Create();
+        var (pipeline, capture, recognizer, store, dir, _) = Create();
         try
         {
-            RecognitionOutput? output = null;
-            pipeline.RecognitionUpdated += o => output = o;
+            int frames = 0;
+            pipeline.FrameAvailable += _ => frames++;
             pipeline.Start();
-            capture.Emit(FourBright(DateTime.UtcNow, 4));
-            Check.True(output != null, "应收到识别结果");
-            Check.Equal(4, output!.Left.Value, "左值=4");
+            recognizer.Enqueue(4);
+            var t0 = DateTime.UtcNow;
+            capture.Emit(Frame(t0));
+            capture.Emit(Frame(t0.AddMilliseconds(1)));
+            Check.Equal(2, frames, "预览帧回调不受推理节流影响");
         }
         finally
         {
@@ -187,4 +237,37 @@ public sealed class FakeCapture : ICaptureSource
         State = state;
         StateChanged?.Invoke(this, new CaptureStateChangedEventArgs { State = state, Message = message });
     }
+}
+
+/// <summary>Fake 识别器：按队列逐帧返回预设读数。</summary>
+public sealed class FakeRecognizer : IEnergyRecognizer
+{
+    private readonly Queue<EnergyReading> _queue = new();
+
+    public EnergyReading Fallback { get; set; } = new(0, 0, 4, 4, Array.Empty<EnergyDetection>(), Array.Empty<EnergyDetection>());
+    public int Calls { get; private set; }
+
+    public void Enqueue(params int[] leftValues)
+    {
+        // 仅让左侧变化，右侧恒为 0，避免两侧同时触发干扰侧别断言
+        foreach (int v in leftValues) EnqueueReading(Reading(v, 0));
+    }
+
+    public void EnqueueReading(EnergyReading reading) => _queue.Enqueue(reading);
+
+    private static EnergyReading Reading(int left, int right)
+    {
+        static IReadOnlyList<EnergyDetection> Empty() => Array.Empty<EnergyDetection>();
+        return new EnergyReading(left, right, 4 - left, 4 - right, Empty(), Empty());
+    }
+
+    public EnergyReading Recognize(CapturedFrame frame)
+    {
+        Calls++;
+        return _queue.Count > 0 ? _queue.Dequeue() : Fallback;
+    }
+
+    public void Reset() { }
+
+    public void Dispose() { }
 }

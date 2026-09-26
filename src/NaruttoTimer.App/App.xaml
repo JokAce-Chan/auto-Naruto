@@ -48,6 +48,12 @@
             <Setter Property="Margin" Value="0,3,0,0"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
+        <!-- 下拉框条目：浅色底 + 黑色文本 -->
+        <Style x:Key="LightComboItem" TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="#000000"/>
+            <Setter Property="Padding" Value="8,4"/>
+        </Style>
         <Style TargetType="ToggleButton">
             <Setter Property="Template">
                 <Setter.Value>

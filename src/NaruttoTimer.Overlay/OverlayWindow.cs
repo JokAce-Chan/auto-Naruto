@@ -78,7 +78,7 @@ public sealed class OverlayWindow : Window, IOverlayService
 
         SizeChanged += (_, _) => ApplyLayout();
         ApplyLayout();
-        Update(new CountdownSnapshot(0, 0, SideStatus.Normal, SideStatus.Normal));
+        Update(CountdownSnapshot.Zero);
     }
 
     public bool IsLocked => _locked;
