@@ -47,15 +47,10 @@ dotnet run --project src/NaruttoTimer.App
 - `tools/` 构建/发布/图标脚本
 - `vendor/scrcpy/` scrcpy 组件（发布时生成，不入库）
 - `assets/` 图标与素材
-- `design/` 主界面原型与设计文档
 - `data/` 运行数据（不入库）
 
 ## 文档
-- `PRD.md` 产品需求文档（历史基线，识别方案已被 AI 模式取代）
-- `DEVELOPMENT_PLAN.md` 开发计划（历史基线）
-- `GITHUB_GUIDE.md` GitHub 从零使用指南
 - `docs/使用说明.md` 最终用户使用说明
-- `docs/识别优化会话记录.md` 识别优化基线（历史记录）
 
 ## 版本
 v0.3（移除传统模式；AI 模式内新增「值判定 / 空豆判定」可切换；值上限 6）
