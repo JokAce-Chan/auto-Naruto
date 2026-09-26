@@ -19,7 +19,13 @@ public static class EnergyRuleEngineTests
 
     private static void Feed(EnergyRuleEngine e, Side side, int value, int times)
     {
-        for (int i = 0; i < times; i++) e.Update(side, value);
+        for (int i = 0; i < times; i++) e.Update(side, value, EnergyRules.MaxValue - value);
+    }
+
+    /// <summary>同时指定值与空豆数喂入，供「空豆判定」用例使用。</summary>
+    private static void Feed(EnergyRuleEngine e, Side side, int value, int emptyCount, int times)
+    {
+        for (int i = 0; i < times; i++) e.Update(side, value, emptyCount);
     }
 
     [Fact]
@@ -138,12 +144,12 @@ public static class EnergyRuleEngineTests
     }
 
     [Fact]
-    public static void 值超上限_被clamp到4()
+    public static void 值超上限_被clamp到值上限()
     {
         var (e, _) = NewEngine();
-        e.Update(Side.Left, 99);
-        Check.Equal(4, e.LeftValue, "clamp 到 4");
-        e.Update(Side.Right, -3);
+        e.Update(Side.Left, 99, 0);
+        Check.Equal(EnergyRules.MaxValue, e.LeftValue, "clamp 到值上限 6");
+        e.Update(Side.Right, -3, 0);
         Check.Equal(0, e.RightValue, "clamp 到 0");
     }
 
@@ -154,9 +160,63 @@ public static class EnergyRuleEngineTests
         int triggers = 0;
         e.SkillUsed += (_, _) => triggers++;
         Feed(e, Side.Left, 4, 3);
-        e.Update(Side.Left, 3); // 单帧闪到 3
+        e.Update(Side.Left, 3, EnergyRules.MaxValue - 3); // 单帧闪到 3
         Feed(e, Side.Left, 4, 2);
         Check.Equal(0, triggers, "单帧闪断不应触发");
+    }
+
+    [Fact]
+    public static void 值判定_空豆4到6_随值递减逐级触发()
+    {
+        var (e, _) = NewEngine();
+        var seq = new List<(int Old, int New)>();
+        e.SkillUsed += (_, a) => seq.Add((a.OldValue, a.NewValue));
+
+        Feed(e, Side.Left, 2, 4, 3); // 空豆 4 → 值 2
+        Feed(e, Side.Left, 1, 5, 3); // 空豆 5 → 值 1
+        Feed(e, Side.Left, 0, 6, 3); // 空豆 6 → 值 0
+
+        Check.Equal(2, seq.Count, "4→5 与 5→6 各触发一次");
+        Check.Equal((2, 1), seq[0], "值 2→1");
+        Check.Equal((1, 0), seq[1], "值 1→0");
+    }
+
+    [Fact]
+    public static void 空豆判定_空豆4到6_逐级触发()
+    {
+        var (e, _) = NewEngine();
+        e.Judgement = EnergyJudgement.EmptyCount;
+        var seq = new List<(int Old, int New)>();
+        e.SkillUsed += (_, a) => seq.Add((a.OldValue, a.NewValue));
+
+        Feed(e, Side.Left, 2, 4, 3);
+        Feed(e, Side.Left, 1, 5, 3);
+        Feed(e, Side.Left, 0, 6, 3);
+
+        Check.Equal(2, seq.Count, "空豆 4→5、5→6 各触发一次");
+        Check.Equal((4, 5), seq[0], "空豆 4→5");
+        Check.Equal((5, 6), seq[1], "空豆 5→6");
+    }
+
+    [Fact]
+    public static void 空豆判定_不受值夹断影响_值判定会夹断()
+    {
+        // 空豆 6→7 时值恒为 0（clamp），值判定不再触发；空豆判定仍能判定。
+        var (valueEngine, _) = NewEngine();
+        int valueTriggers = 0;
+        valueEngine.SkillUsed += (_, _) => valueTriggers++;
+        Feed(valueEngine, Side.Left, 0, 6, 3);
+        Feed(valueEngine, Side.Left, 0, 7, 3);
+
+        var (emptyEngine, _) = NewEngine();
+        emptyEngine.Judgement = EnergyJudgement.EmptyCount;
+        int emptyTriggers = 0;
+        emptyEngine.SkillUsed += (_, _) => emptyTriggers++;
+        Feed(emptyEngine, Side.Left, 0, 6, 3);
+        Feed(emptyEngine, Side.Left, 0, 7, 3);
+
+        Check.Equal(0, valueTriggers, "值被夹断后不再变化，不触发");
+        Check.Equal(1, emptyTriggers, "空豆判定不受夹断影响");
     }
 
     [Fact]

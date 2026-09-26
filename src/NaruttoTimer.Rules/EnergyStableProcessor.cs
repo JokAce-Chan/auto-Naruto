@@ -21,14 +21,20 @@ public sealed class EnergyStableProcessor
     /// <summary>最近一次确认的稳定值。</summary>
     public int StableValue => _tracker.StableValue;
 
-    public bool IsUseSkill(int value)
+    public bool IsUseSkill(int value) => IsUseSkill(value, -1);
+
+    /// <summary>
+    /// 以指定步进判定：新稳定值 == 上一次稳定值 + <paramref name="step"/> 时触发。
+    /// <paramref name="step"/> = −1（值判定：值恰好减 1）/ +1（空豆判定：空豆数恰好加 1）。
+    /// </summary>
+    public bool IsUseSkill(int value, int step)
     {
         var result = _tracker.Update(value);
         if (!result.HasNewStableValue) return false;
         try
         {
             if (_lastStableValue == -1) return false;
-            return result.StableValue == _lastStableValue - 1;
+            return result.StableValue == _lastStableValue + step;
         }
         finally
         {

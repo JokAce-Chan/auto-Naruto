@@ -9,7 +9,7 @@ public readonly record struct EnergyDetection(float X, float Y, float Width, flo
 
 /// <summary>
 /// 单帧识别结果（源 Engine.onFrame）。
-/// 值 = 4 - 空豆数，并 clamp 到 0~4。
+/// 值 = 值上限 − 空豆数，并 clamp 到 0~值上限（EnergyRules.MaxValue）。
 /// </summary>
 public sealed record EnergyReading(
     int LeftValue,
@@ -27,8 +27,7 @@ public sealed record RecognizerOptions(
     LabelImageConfig Label,
     string ModelPath,
     double ConfidenceThreshold = 0.7,
-    double NmsThreshold = 0.25,
-    int TraditionalGrayThreshold = 110)
+    double NmsThreshold = 0.25)
 {
     /// <summary>默认资源目录（随输出拷入的 assets）。</summary>
     public static string DefaultAssetDirectory => Path.Combine(AppContext.BaseDirectory, "assets");

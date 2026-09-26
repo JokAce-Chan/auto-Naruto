@@ -19,7 +19,7 @@
                         <TextBlock Text="★" Foreground="White" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <TextBlock Text="替身计时器" Foreground="#E6E8EC" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="VersionText" Text="NaruttoTimer v0.2 · AI/传统双模式" Foreground="#6B7480" FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="VersionText" Text="NaruttoTimer v0.3 · AI 模式（值判定/空豆判定）" Foreground="#6B7480" FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
             </DockPanel>
         </Border>
@@ -46,11 +46,11 @@
                         <TextBlock Text="实时预览" Foreground="#9AA3B0" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <ToggleButton x:Name="PreviewToggle" Width="34" Height="18" IsChecked="True" Click="PreviewToggle_Click"/>
                     </StackPanel>
-                    <TextBlock Text="模式" Foreground="#9AA3B0" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <ComboBox x:Name="ModeCombo" Width="110" Height="26" Margin="0,0,8,0" VerticalAlignment="Center"
+                    <TextBlock Text="判定方式" Foreground="#9AA3B0" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <ComboBox x:Name="JudgementCombo" Width="110" Height="26" Margin="0,0,8,0" VerticalAlignment="Center"
                               Background="#F2F4F7" Foreground="#000000" BorderBrush="#8A93A0"
                               ItemContainerStyle="{StaticResource LightComboItem}" IsEditable="False"
-                              SelectionChanged="ModeCombo_SelectionChanged"/>
+                              SelectionChanged="JudgementCombo_SelectionChanged"/>
                     <Button x:Name="BtnLabelConfig" Content="区域标注" Style="{StaticResource ToolbarButton}" Click="BtnLabelConfig_Click"/>
                     <Button x:Name="BtnDumpFrame" Content="导出帧" Style="{StaticResource ToolbarButton}" Click="BtnDumpFrame_Click"/>
                     <Button x:Name="BtnData" Content="数据保存" Style="{StaticResource ToolbarButton}" Click="BtnData_Click"/>
@@ -113,8 +113,8 @@
 
                     <Border Style="{StaticResource Card}" Margin="0,0,0,10">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource CardTitle}" Text="识别模式与参数"/>
-                            <TextBlock x:Name="ModeText" Style="{StaticResource CardBody}" Text="模式：--"/>
+                            <TextBlock Style="{StaticResource CardTitle}" Text="识别与参数"/>
+                            <TextBlock x:Name="ModeText" Style="{StaticResource CardBody}" Text="判定方式：--"/>
                             <TextBlock x:Name="ParamText" Style="{StaticResource CardBody}" Text="参数：--"/>
                             <TextBlock x:Name="ModelText" Style="{StaticResource CardBody}" Text="模型：--"/>
                         </StackPanel>
@@ -131,7 +131,7 @@
                     <Border Style="{StaticResource Card}">
                         <StackPanel>
                             <TextBlock Style="{StaticResource CardTitle}" Text="触发规则说明"/>
-                            <TextBlock Style="{StaticResource CardBody}" Text="值 = 4 − 空豆数（AI 模型/传统采样）；连续 3 帧稳定后才参与判定。"/>
+                            <TextBlock Style="{StaticResource CardBody}" Text="值 = 6 − 空豆数（AI 模型）；连续 3 帧稳定后才参与判定；值判定看「值恰好减 1」，空豆判定看「空豆恰好加 1」。"/>
                             <TextBlock Style="{StaticResource CardBody}" Text="稳定值恰好「减 1」→ 视为使用替身/技能，该侧倒计时重置为 14.5s。"/>
                             <TextBlock Style="{StaticResource CardBody}" Text="每帧都参与判定；倒计时归零后保持 0.00。"/>
                         </StackPanel>

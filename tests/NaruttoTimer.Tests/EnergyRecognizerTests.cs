@@ -2,22 +2,16 @@ using NaruttoTimer.Capture;
 using NaruttoTimer.Data;
 using NaruttoTimer.Recognition;
 using NaruttoTimer.Recognition.ImageProcess;
+using NaruttoTimer.Rules;
 using OpenCvSharp;
 
 namespace NaruttoTimer.Tests;
 
-/// <summary>识别器端到端测试（真实模型 + 合成帧）。</summary>
+/// <summary>识别器端到端测试（真实模型 + 合成帧）。传统模式已移除，模型不可用时不再降级。</summary>
 public static class EnergyRecognizerTests
 {
-    private static LabelImageConfig DefaultLabelOfMode(LabelMode mode)
-    {
-        var label = LabelImageConfig.CreateDefault();
-        label.Mode = mode;
-        return label;
-    }
-
-    private static RecognizerOptions BuildOptions(LabelMode mode, string? modelPath = null) =>
-        new(DefaultLabelOfMode(mode), modelPath ?? TestAssets.ModelPath, 0.7, 0.25, 110);
+    private static RecognizerOptions BuildOptions(string? modelPath = null) =>
+        new(LabelImageConfig.CreateDefault(), modelPath ?? TestAssets.ModelPath, 0.7, 0.25);
 
     private static CapturedFrame Frame(byte value)
     {
@@ -27,70 +21,48 @@ public static class EnergyRecognizerTests
     }
 
     [Fact]
-    public static void 传统模式_全暗帧_两侧空豆为4_值为0()
+    public static void AI模式_合成帧_不抛异常且值在0到6之间()
     {
-        using var recognizer = new EnergyRecognizer(BuildOptions(LabelMode.TRADITIONAL));
-        Check.Equal(LabelMode.TRADITIONAL, recognizer.EffectiveMode, "传统模式生效");
+        using var recognizer = new EnergyRecognizer(BuildOptions());
+        Check.True(recognizer.IsModelReady, "模型应加载成功");
+        Check.True(recognizer.LoadWarning == null, "模型可用时不应有加载警告");
 
         var reading = recognizer.Recognize(Frame(0));
-        Check.Equal(4, reading.LeftEmptyCount, "左侧空豆");
-        Check.Equal(4, reading.RightEmptyCount, "右侧空豆");
-        Check.Equal(0, reading.LeftValue, "左值 = 4 - 4");
-        Check.Equal(0, reading.RightValue, "右值 = 4 - 4");
+        Check.True(reading.LeftValue is >= 0 and <= EnergyRules.MaxValue, $"左值范围，实际 {reading.LeftValue}");
+        Check.True(reading.RightValue is >= 0 and <= EnergyRules.MaxValue, $"右值范围，实际 {reading.RightValue}");
+        Check.True(reading.LeftEmptyCount >= 0, $"左空豆非负，实际 {reading.LeftEmptyCount}");
     }
 
     [Fact]
-    public static void 传统模式_全亮帧_空豆为0_值为4()
-    {
-        using var recognizer = new EnergyRecognizer(BuildOptions(LabelMode.TRADITIONAL));
-        var reading = recognizer.Recognize(Frame(255));
-        Check.Equal(0, reading.LeftEmptyCount, "左侧空豆");
-        Check.Equal(0, reading.RightEmptyCount, "右侧空豆");
-        Check.Equal(4, reading.LeftValue, "左值 = 4 - 0");
-        Check.Equal(4, reading.RightValue, "右值 = 4 - 0");
-    }
-
-    [Fact]
-    public static void AI模式_合成帧_不抛异常且值在0到4之间()
-    {
-        using var recognizer = new EnergyRecognizer(BuildOptions(LabelMode.AI));
-        Check.Equal(LabelMode.AI, recognizer.EffectiveMode, "模型可用时 AI 模式生效");
-        Check.True(recognizer.LoadWarning == null, "模型应加载成功");
-
-        var reading = recognizer.Recognize(Frame(0));
-        Check.True(reading.LeftValue is >= 0 and <= 4, $"左值范围，实际 {reading.LeftValue}");
-        Check.True(reading.RightValue is >= 0 and <= 4, $"右值范围，实际 {reading.RightValue}");
-        Check.True(reading.LeftEmptyCount is >= 0 and <= 16, $"左空豆范围，实际 {reading.LeftEmptyCount}");
-    }
-
-    [Fact]
-    public static void AI模式_模型缺失_回退传统并给出提示()
+    public static void 模型缺失_不可用且识别抛异常_不再回退传统()
     {
         var missing = Path.Combine(Path.GetTempPath(), $"no-model-{Guid.NewGuid():N}.onnx");
-        using var recognizer = new EnergyRecognizer(BuildOptions(LabelMode.AI, modelPath: missing));
-        Check.True(recognizer.LoadWarning != null, "应有回退提示");
-        Check.Equal(LabelMode.TRADITIONAL, recognizer.EffectiveMode, "回退到传统模式");
+        using var recognizer = new EnergyRecognizer(BuildOptions(modelPath: missing));
+        Check.False(recognizer.IsModelReady, "模型不可用");
+        Check.True(recognizer.LoadWarning != null, "应有加载失败提示");
 
-        var reading = recognizer.Recognize(Frame(0));
-        Check.Equal(4, reading.LeftEmptyCount, "回退后仍能按传统算法识别");
+        Check.Throws<InvalidOperationException>(() => recognizer.Recognize(Frame(0)), "无模型时识别应抛异常");
     }
 
     [Fact]
     public static void TestRecognize_使用临时参数_不影响当前设置()
     {
-        using var recognizer = new EnergyRecognizer(BuildOptions(LabelMode.AI));
-        var temporary = BuildOptions(LabelMode.TRADITIONAL);
+        using var recognizer = new EnergyRecognizer(BuildOptions());
+        var current = recognizer.Options.Label;
+
+        var temporary = LabelImageConfig.CreateDefault();
+        temporary.EnergyBar.Left = new LabelRect(0.4, 0.4, 0.55, 0.55);
         using var mat = MatUtil.FromBgra(640, 360, new byte[640 * 360 * 4]);
 
-        var reading = recognizer.TestRecognize(temporary, mat);
-        Check.Equal(4, reading.LeftEmptyCount, "临时参数按传统算法识别");
-        Check.Equal(LabelMode.AI, recognizer.Options.Label.Mode, "当前设置仍为 AI");
+        var reading = recognizer.TestRecognize(new RecognizerOptions(temporary, TestAssets.ModelPath, 0.7, 0.25), mat);
+        Check.True(reading.LeftValue is >= 0 and <= EnergyRules.MaxValue, $"临时参数可识别，实际 {reading.LeftValue}");
+        Check.True(ReferenceEquals(current, recognizer.Options.Label), "当前设置未被临时参数替换");
     }
 
     [Fact]
     public static void Dispose后_再识别抛异常()
     {
-        var recognizer = new EnergyRecognizer(BuildOptions(LabelMode.TRADITIONAL));
+        var recognizer = new EnergyRecognizer(BuildOptions());
         recognizer.Dispose();
         Check.Throws<ObjectDisposedException>(() => recognizer.Recognize(Frame(0)), "释放后不应再识别");
     }

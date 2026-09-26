@@ -4,7 +4,7 @@ using OpenCvSharp;
 
 namespace NaruttoTimer.Tests;
 
-/// <summary>图像处理层测试：归一化裁剪 / 传统空豆采样。</summary>
+/// <summary>图像处理层测试：归一化裁剪 / BGRA 构造。</summary>
 public static class ImageProcessTests
 {
     // ── ImageCropper ──
@@ -63,39 +63,5 @@ public static class ImageProcessTests
         Check.Equal(8, (int)c.Item1, "G");
         Check.Equal(9, (int)c.Item2, "R");
         Check.Equal(255, (int)c.Item3, "A");
-    }
-
-    // ── TraditionalEnergyDetector ──
-
-    [Fact]
-    public static void 传统采样_全白条_零空豆()
-    {
-        using var bar = new Mat(48, 77, MatType.CV_8UC3, new Scalar(255, 255, 255));
-        Check.Equal(0, TraditionalEnergyDetector.CountEnergyNum(bar), "全亮应无空豆");
-    }
-
-    [Fact]
-    public static void 传统采样_全黑条_四个空豆()
-    {
-        using var bar = new Mat(48, 77, MatType.CV_8UC3, new Scalar(0, 0, 0));
-        Check.Equal(4, TraditionalEnergyDetector.CountEnergyNum(bar), "全暗应计 4 空豆");
-    }
-
-    [Fact]
-    public static void 传统采样_只暗第一个采样点_计一个空豆()
-    {
-        using var bar = new Mat(48, 77, MatType.CV_8UC3, new Scalar(255, 255, 255));
-        int x = (int)(77 * 0.125d); // 源采样公式 i=0
-        int y = 48 / 2;
-        bar.Set(y, x, new Vec3b(0, 0, 0));
-        Check.Equal(1, TraditionalEnergyDetector.CountEnergyNum(bar), "仅第 1 点为暗");
-    }
-
-    [Fact]
-    public static void 传统采样_灰度阈值可调()
-    {
-        using var bar = new Mat(48, 77, MatType.CV_8UC3, new Scalar(120, 120, 120));
-        Check.Equal(0, TraditionalEnergyDetector.CountEnergyNum(bar, 110), "灰度 120 高于阈值 110 → 不算空豆");
-        Check.Equal(4, TraditionalEnergyDetector.CountEnergyNum(bar, 130), "阈值抬高到 130 后应计 4 空豆");
     }
 }

@@ -82,6 +82,26 @@ public static class EnergyStableProcessorTests
     }
 
     [Fact]
+    public static void 指定步进加一_空豆增1才触发()
+    {
+        var up = new EnergyStableProcessor(3);
+        for (int i = 0; i < 3; i++) up.IsUseSkill(4, 1);
+        Check.False(up.IsUseSkill(4, 1), "同值不触发");
+
+        var down = new EnergyStableProcessor(3);
+        for (int i = 0; i < 3; i++) down.IsUseSkill(4, 1);
+        for (int i = 0; i < 3; i++) down.IsUseSkill(3, 1);
+        Check.Equal(3, down.LastStableValue, "减少时仍更新基线（源 finally 行为）");
+
+        var q = new EnergyStableProcessor(3);
+        for (int i = 0; i < 3; i++) q.IsUseSkill(4, 1);
+        q.IsUseSkill(5, 1);
+        q.IsUseSkill(5, 1);
+        Check.True(q.IsUseSkill(5, 1), "恰好加 1 → 触发");
+        Check.Equal(5, q.LastStableValue, "基线跟到 5");
+    }
+
+    [Fact]
     public static void Reset_清空基线与稳定值()
     {
         var p = new EnergyStableProcessor(3);

@@ -452,7 +452,7 @@ public sealed class SettingsDialog : Window
 {
     private readonly AppSettings _settings;
     private readonly TextBox _device = new(), _countdown = new(), _stable = new(), _interval = new();
-    private readonly TextBox _confidence = new(), _nms = new(), _gray = new();
+    private readonly TextBox _confidence = new(), _nms = new();
     private readonly TextBox _adb = new(), _scrcpy = new(), _dataDir = new();
     private readonly TextBox _leftColor = new(), _rightColor = new();
 
@@ -471,7 +471,6 @@ public sealed class SettingsDialog : Window
         _interval.Text = settings.InferenceIntervalMs.ToString(CultureInfo.InvariantCulture);
         _confidence.Text = settings.ConfidenceThreshold.ToString("0.##", CultureInfo.InvariantCulture);
         _nms.Text = settings.NmsThreshold.ToString("0.##", CultureInfo.InvariantCulture);
-        _gray.Text = settings.TraditionalGrayThreshold.ToString(CultureInfo.InvariantCulture);
         _adb.Text = settings.AdbPath;
         _scrcpy.Text = settings.ScrcpyPath;
         _dataDir.Text = settings.DataDirectory;
@@ -485,7 +484,6 @@ public sealed class SettingsDialog : Window
         AddRow(form, "推理间隔（毫秒，默认 125；调大可降低 CPU 占用）", _interval);
         AddRow(form, "AI 置信度阈值（默认 0.7）", _confidence);
         AddRow(form, "NMS IoU 阈值（默认 0.25）", _nms);
-        AddRow(form, "传统模式灰度阈值（默认 110）", _gray);
         AddRow(form, "adb 路径（留空自动查找）", _adb);
         AddRow(form, "scrcpy/FFmpeg 目录（留空自动查找）", _scrcpy);
         AddRow(form, "数据目录（默认 data）", _dataDir);
@@ -522,13 +520,11 @@ public sealed class SettingsDialog : Window
             int interval = ParseInt(_interval, "推理间隔");
             double confidence = ParseDouble(_confidence, "AI 置信度阈值");
             double nms = ParseDouble(_nms, "NMS 阈值");
-            int gray = ParseInt(_gray, "传统模式灰度阈值");
             if (countdown <= 0) throw new ArgumentException("替换身倒计时必须大于 0");
             if (stable < 1) throw new ArgumentException("稳定判定帧数至少为 1");
             if (interval < 16) throw new ArgumentException("推理间隔至少 16 毫秒");
             if (confidence <= 0 || confidence > 1) throw new ArgumentException("置信度阈值需在 0~1 之间");
             if (nms <= 0 || nms > 1) throw new ArgumentException("NMS 阈值需在 0~1 之间");
-            if (gray < 0 || gray > 255) throw new ArgumentException("灰度阈值需在 0~255 之间");
             OverlayFormat.ParseHexColor(_leftColor.Text);
             OverlayFormat.ParseHexColor(_rightColor.Text);
 
@@ -538,7 +534,6 @@ public sealed class SettingsDialog : Window
             _settings.InferenceIntervalMs = interval;
             _settings.ConfidenceThreshold = confidence;
             _settings.NmsThreshold = nms;
-            _settings.TraditionalGrayThreshold = gray;
             _settings.AdbPath = _adb.Text.Trim();
             _settings.ScrcpyPath = _scrcpy.Text.Trim();
             _settings.DataDirectory = _dataDir.Text.Trim();

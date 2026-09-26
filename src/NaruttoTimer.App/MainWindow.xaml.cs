@@ -14,7 +14,7 @@ using NaruttoTimer.Rules;
 
 namespace NaruttoTimer.App;
 
-/// <summary>主窗口：采集 → AI/传统识别 → 规则引擎 → 置顶框 + 数据保存全链路接线。</summary>
+/// <summary>主窗口：采集 → AI 识别 → 规则引擎（值判定/空豆判定）→ 置顶框 + 数据保存全链路接线。</summary>
 public partial class MainWindow : Window
 {
     private static readonly Brush Gray = Brush("#6B7480");
@@ -44,7 +44,7 @@ public partial class MainWindow : Window
     private Point _dragLast;
     private bool _renderScheduled;
     private bool _previewVisible = true;
-    private bool _suppressModeEvent;
+    private bool _suppressJudgementEvent;
     private double _previewScale = 1;
     private double _previewOffsetX;
     private double _previewOffsetY;
@@ -112,7 +112,10 @@ public partial class MainWindow : Window
         _recognizer = new EnergyRecognizer(BuildRecognizerOptions(_settings.Label));
         if (_recognizer.LoadWarning != null) Log(_recognizer.LoadWarning);
 
-        var engine = new EnergyRuleEngine(_settings.CountdownSeconds, _settings.StableFrames);
+        var engine = new EnergyRuleEngine(_settings.CountdownSeconds, _settings.StableFrames)
+        {
+            Judgement = _settings.Judgement,
+        };
         _pipeline = new PipelineController(_capture, _recognizer, engine, _dataStore)
         {
             InferenceIntervalMs = _settings.InferenceIntervalMs,
@@ -130,8 +133,7 @@ public partial class MainWindow : Window
             label,
             Path.Combine(assets, "best.onnx"),
             _settings.ConfidenceThreshold,
-            _settings.NmsThreshold,
-            _settings.TraditionalGrayThreshold);
+            _settings.NmsThreshold);
     }
 
     private void ApplySettingsToUi()
@@ -144,23 +146,20 @@ public partial class MainWindow : Window
         LockToggle.IsChecked = _settings.OverlayLocked;
         LockValue.Text = _settings.OverlayLocked ? "已锁定" : "未锁定";
 
-        _suppressModeEvent = true;
-        ModeCombo.Items.Clear();
-        ModeCombo.Items.Add("AI 模式");
-        ModeCombo.Items.Add("传统模式");
-        ModeCombo.SelectedIndex = _settings.Label.Mode == LabelMode.AI ? 0 : 1;
-        _suppressModeEvent = false;
+        _suppressJudgementEvent = true;
+        JudgementCombo.Items.Clear();
+        JudgementCombo.Items.Add("值判定");
+        JudgementCombo.Items.Add("空豆判定");
+        JudgementCombo.SelectedIndex = _settings.Judgement == EnergyJudgement.EmptyCount ? 1 : 0;
+        _suppressJudgementEvent = false;
 
         UpdateParameterTexts();
     }
 
     private void UpdateParameterTexts()
     {
-        string effective = _recognizer == null
-            ? _settings.Label.Mode.ToString()
-            : _recognizer.EffectiveMode == LabelMode.AI ? "AI" : "传统（回退）";
-        ModeText.Text = $"模式：{(_settings.Label.Mode == LabelMode.AI ? "AI 模式" : "传统模式")}（实际：{effective}）";
-        ParamText.Text = $"倒计时 {_settings.CountdownSeconds:0.##}s ｜ 稳定 {_settings.StableFrames} 帧 ｜ 推理间隔 {_settings.InferenceIntervalMs}ms ｜ 置信度 {_settings.ConfidenceThreshold:0.##} ｜ NMS {_settings.NmsThreshold:0.##} ｜ 灰度阈值 {_settings.TraditionalGrayThreshold}";
+        ModeText.Text = $"判定方式：{JudgementLabel(_settings.Judgement)}（AI 模式 · 值上限 {EnergyRules.MaxValue}）";
+        ParamText.Text = $"倒计时 {_settings.CountdownSeconds:0.##}s ｜ 稳定 {_settings.StableFrames} 帧 ｜ 推理间隔 {_settings.InferenceIntervalMs}ms ｜ 置信度 {_settings.ConfidenceThreshold:0.##} ｜ NMS {_settings.NmsThreshold:0.##}";
         ModelText.Text = _recognizer?.LoadWarning ?? "模型：best.onnx（YOLOv8 · 单类空豆 · 输入 128×128）";
         LabelText.Text =
             $"左能量条：{_settings.Label.EnergyBar.Left}" + Environment.NewLine +
@@ -336,6 +335,12 @@ public partial class MainWindow : Window
                 Log("请先点击 [连接] 建立视频流");
                 return;
             }
+            if (_recognizer?.IsModelReady != true)
+            {
+                Log($"AI 模型不可用，无法开始识别：{_recognizer?.LoadWarning ?? "未加载 best.onnx"}");
+                MessageBox.Show(this, $"AI 模型不可用，无法开始识别。{Environment.NewLine}{_recognizer?.LoadWarning ?? "请确认 assets/best.onnx 存在。"}", "识别", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
             _pipeline.Start();
             _uiTimer.Start();
             EnsureOverlay().Show();
@@ -345,17 +350,28 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void JudgementCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_suppressModeEvent || ModeCombo.SelectedIndex < 0) return;
-        var mode = ModeCombo.SelectedIndex == 0 ? LabelMode.AI : LabelMode.TRADITIONAL;
-        if (_settings.Label.Mode == mode) return;
-        _settings.Label.Mode = mode;
+        if (_suppressJudgementEvent || JudgementCombo.SelectedIndex < 0) return;
+        var judgement = JudgementCombo.SelectedIndex == 1 ? EnergyJudgement.EmptyCount : EnergyJudgement.Value;
+        if (_settings.Judgement == judgement) return;
+        _settings.Judgement = judgement;
         _settingsStore.Save(_settings);
-        _recognizer?.UpdateOptions(BuildRecognizerOptions(_settings.Label));
+        ApplyJudgementToEngine();
         UpdateParameterTexts();
-        Log($"识别模式已切换为 {mode}");
+        Log($"判定方式已切换为 {JudgementLabel(judgement)}（稳定值与倒计时已重置）");
     }
+
+    /// <summary>把判定方式应用到规则引擎，并重置稳定值/倒计时，避免切换瞬间跳变误触发。</summary>
+    private void ApplyJudgementToEngine()
+    {
+        if (_pipeline == null) return;
+        _pipeline.Engine.Judgement = _settings.Judgement;
+        _pipeline.Engine.Reset();
+    }
+
+    private static string JudgementLabel(EnergyJudgement judgement) =>
+        judgement == EnergyJudgement.EmptyCount ? "空豆判定" : "值判定";
 
     private void PreviewToggle_Click(object sender, RoutedEventArgs e)
     {
@@ -521,7 +537,7 @@ public partial class MainWindow : Window
 
     private void OnTriggered(TriggerEvent evt)
     {
-        Log($"{(evt.Side == Side.Left ? "左" : "右")}值 {evt.OldValue}→{evt.NewValue} 触发，置顶框={_settings.CountdownSeconds:0.00}");
+        Log($"{(evt.Side == Side.Left ? "左" : "右")} · {JudgementLabel(_settings.Judgement)} {evt.OldValue}→{evt.NewValue} 触发，置顶框={_settings.CountdownSeconds:0.00}");
     }
 
     private void OnCaptureStateChanged(CaptureState state, string? message)
@@ -563,9 +579,19 @@ public partial class MainWindow : Window
     {
         var snapshot = _pipeline?.GetSnapshot() ?? CountdownSnapshot.Zero;
         var reading = _lastReading;
-        RecLeftText.Text = $"左  值 {(reading == null ? "--" : reading.LeftValue.ToString())}（空豆 {reading?.LeftEmptyCount.ToString() ?? "--"}）· 倒计时 {snapshot.LeftSeconds:0.00}";
-        RecRightText.Text = $"右  值 {(reading == null ? "--" : reading.RightValue.ToString())}（空豆 {reading?.RightEmptyCount.ToString() ?? "--"}）· 倒计时 {snapshot.RightSeconds:0.00}";
+        RecLeftText.Text = FormatReading("左", reading?.LeftValue, reading?.LeftEmptyCount, snapshot.LeftSeconds);
+        RecRightText.Text = FormatReading("右", reading?.RightValue, reading?.RightEmptyCount, snapshot.RightSeconds);
         _overlay?.Update(snapshot);
+    }
+
+    /// <summary>按当前判定方式决定主显示：值判定突出「值」，空豆判定突出「空豆」。</summary>
+    private string FormatReading(string side, int? value, int? empty, double seconds)
+    {
+        string v = value?.ToString() ?? "--";
+        string e = empty?.ToString() ?? "--";
+        string main = _settings.Judgement == EnergyJudgement.EmptyCount ? $"空豆 {e}" : $"值 {v}";
+        string alt = _settings.Judgement == EnergyJudgement.EmptyCount ? $"值 {v}" : $"空豆 {e}";
+        return $"{side}  {main}（{alt}）· 倒计时 {seconds:0.00}";
     }
 
     // ── 预览绘制 ──
@@ -596,8 +622,16 @@ public partial class MainWindow : Window
 
         PreviewCanvas.Children.Clear();
         var layout = _editDraft;
-        DrawLabelRect(layout.EnergyBar.Left, LeftBarColor, $"左 {(_lastReading == null ? "-" : _lastReading.LeftValue.ToString())}", _lastReading?.LeftDetections);
-        DrawLabelRect(layout.EnergyBar.Right, RightBarColor, $"右 {(_lastReading == null ? "-" : _lastReading.RightValue.ToString())}", _lastReading?.RightDetections);
+        DrawLabelRect(layout.EnergyBar.Left, LeftBarColor, PreviewLabel("左", _lastReading?.LeftValue, _lastReading?.LeftEmptyCount), _lastReading?.LeftDetections);
+        DrawLabelRect(layout.EnergyBar.Right, RightBarColor, PreviewLabel("右", _lastReading?.RightValue, _lastReading?.RightEmptyCount), _lastReading?.RightDetections);
+    }
+
+    private string PreviewLabel(string side, int? value, int? empty)
+    {
+        if (value == null || empty == null) return $"{side} -";
+        return _settings.Judgement == EnergyJudgement.EmptyCount
+            ? $"{side} 空豆 {empty}（值 {value}）"
+            : $"{side} 值 {value}（空豆 {empty}）";
     }
 
     private void DrawLabelRect(LabelRect rect, Color color, string label, IReadOnlyList<EnergyDetection>? detections)

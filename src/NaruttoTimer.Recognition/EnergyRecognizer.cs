@@ -8,8 +8,10 @@ using OpenCvSharp;
 namespace NaruttoTimer.Recognition;
 
 /// <summary>
-/// 能量识别器（源 domain/engine/Engine.onFrame）：
-/// 左右能量条裁剪 → (AI 拼接推理 | 传统 4 点采样) → 值 = 4 - 空豆数（clamp 0~4）。
+/// 能量识别器（源 domain/engine/Engine.onFrame），AI 模式（best.onnx）。
+/// 左右能量条裁剪 → 垂直拼接一次推理 → 得到空豆数；
+/// 值 = 值上限 − 空豆数（clamp 0~值上限）。
+/// 注：传统（灰度采样）模式已移除；模型不可用时不再降级，识别会明确抛错。
 /// </summary>
 public sealed class EnergyRecognizer : IEnergyRecognizer
 {
@@ -31,7 +33,7 @@ public sealed class EnergyRecognizer : IEnergyRecognizer
         catch (Exception ex)
         {
             _model = null;
-            LoadWarning = $"AI 模型加载失败，已回退传统模式：{ex.Message}";
+            LoadWarning = $"AI 模型加载失败：{ex.Message}（传统模式已移除，识别不可用）";
         }
 
         _cropper = new ImageCropper(options.Label);
@@ -40,12 +42,8 @@ public sealed class EnergyRecognizer : IEnergyRecognizer
     /// <summary>模型加载失败时的提示（null 表示正常）。</summary>
     public string? LoadWarning { get; }
 
-    /// <summary>实际生效的模式（AI 模型不可用时回退为传统模式）。</summary>
-    public LabelMode EffectiveMode => ResolveMode(_options);
-
-    /// <summary>按给定参数解析实际生效的模式（模型不可用时回退传统）。</summary>
-    private LabelMode ResolveMode(RecognizerOptions options) =>
-        options.Label.Mode == LabelMode.AI && _model != null ? LabelMode.AI : LabelMode.TRADITIONAL;
+    /// <summary>模型是否可用（false 表示识别不可用，不应开始识别）。</summary>
+    public bool IsModelReady => _model != null;
 
     public RecognizerOptions Options
     {
@@ -93,6 +91,8 @@ public sealed class EnergyRecognizer : IEnergyRecognizer
 
     private EnergyReading Recognize(Mat bgra, RecognizerOptions options, ImageCropper cropper)
     {
+        var model = _model ?? throw new InvalidOperationException(LoadWarning ?? "AI 模型不可用");
+
         using var leftBar = cropper.CropLeftEnergyBar(bgra);
         using var rightBar = cropper.CropRightEnergyBar(bgra);
         using var leftBgr = new Mat();
@@ -100,34 +100,15 @@ public sealed class EnergyRecognizer : IEnergyRecognizer
         Cv2.CvtColor(leftBar, leftBgr, ColorConversionCodes.BGRA2BGR);
         Cv2.CvtColor(rightBar, rightBgr, ColorConversionCodes.BGRA2BGR);
 
-        int leftEmpty;
-        int rightEmpty;
-        IReadOnlyList<EnergyDetection> leftDetections;
-        IReadOnlyList<EnergyDetection> rightDetections;
-
-        if (ResolveMode(options) == LabelMode.AI)
-        {
-            var combined = _model!.InferCombined(leftBgr, rightBgr);
-            leftEmpty = combined.LeftEmptyCount;
-            rightEmpty = combined.RightEmptyCount;
-            leftDetections = combined.LeftDetections;
-            rightDetections = combined.RightDetections;
-        }
-        else
-        {
-            leftEmpty = TraditionalEnergyDetector.CountEnergyNum(leftBgr, options.TraditionalGrayThreshold);
-            rightEmpty = TraditionalEnergyDetector.CountEnergyNum(rightBgr, options.TraditionalGrayThreshold);
-            leftDetections = Array.Empty<EnergyDetection>();
-            rightDetections = Array.Empty<EnergyDetection>();
-        }
+        var combined = model.InferCombined(leftBgr, rightBgr);
 
         return new EnergyReading(
-            Math.Clamp(EnergyRules.MaxValue - leftEmpty, 0, EnergyRules.MaxValue),
-            Math.Clamp(EnergyRules.MaxValue - rightEmpty, 0, EnergyRules.MaxValue),
-            leftEmpty,
-            rightEmpty,
-            leftDetections,
-            rightDetections);
+            Math.Clamp(EnergyRules.MaxValue - combined.LeftEmptyCount, 0, EnergyRules.MaxValue),
+            Math.Clamp(EnergyRules.MaxValue - combined.RightEmptyCount, 0, EnergyRules.MaxValue),
+            combined.LeftEmptyCount,
+            combined.RightEmptyCount,
+            combined.LeftDetections,
+            combined.RightDetections);
     }
 
     public void Reset()

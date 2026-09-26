@@ -1,4 +1,5 @@
 using NaruttoTimer.Data;
+using NaruttoTimer.Rules;
 
 namespace NaruttoTimer.Tests;
 
@@ -18,8 +19,7 @@ public static class SettingsTests
         Check.Equal(125, s.InferenceIntervalMs, "源项目 8FPS → 125ms");
         Check.Near(0.7, s.ConfidenceThreshold, 0.001, "源项目置信度 0.7");
         Check.Near(0.25, s.NmsThreshold, 0.001, "源项目 NMS 0.25");
-        Check.Equal(110, s.TraditionalGrayThreshold, "源项目 colorThreshold = 110");
-        Check.Equal(LabelMode.AI, s.Label.Mode, "默认 AI 模式");
+        Check.Equal(EnergyJudgement.Value, s.Judgement, "默认判定方式：值判定");
         Check.Equal(1280, s.VideoWidth, "整帧宽");
         Check.Equal(720, s.VideoHeight, "整帧高（不再裁切顶部条带）");
     }
@@ -40,8 +40,7 @@ public static class SettingsTests
             Check.Equal(def.InferenceIntervalMs, loaded.InferenceIntervalMs, "推理间隔");
             Check.Near(def.ConfidenceThreshold, loaded.ConfidenceThreshold, 0.0001, "置信度");
             Check.Near(def.NmsThreshold, loaded.NmsThreshold, 0.0001, "NMS");
-            Check.Equal(def.TraditionalGrayThreshold, loaded.TraditionalGrayThreshold, "灰度阈值");
-            Check.Equal(def.Label.Mode, loaded.Label.Mode, "识别模式");
+            Check.Equal(def.Judgement, loaded.Judgement, "判定方式");
         }
         finally
         {
@@ -64,8 +63,8 @@ public static class SettingsTests
                 OverlayTextOpacityPercent = 40,
                 CountdownSeconds = 13.0,
                 StableFrames = 5,
+                Judgement = EnergyJudgement.EmptyCount,
             };
-            s.Label.Mode = LabelMode.TRADITIONAL;
             s.Label.EnergyBar.Left = new LabelRect(0.1, 0.05, 0.22, 0.19);
             store.Save(s);
 
@@ -76,7 +75,7 @@ public static class SettingsTests
             Check.Equal(40, loaded.OverlayTextOpacityPercent, "数字透明度");
             Check.Near(13.0, loaded.CountdownSeconds, 0.0001, "倒计时");
             Check.Equal(5, loaded.StableFrames, "稳定帧数");
-            Check.Equal(LabelMode.TRADITIONAL, loaded.Label.Mode, "传统模式");
+            Check.Equal(EnergyJudgement.EmptyCount, loaded.Judgement, "判定方式");
             Check.Near(0.22, loaded.Label.EnergyBar.Left.RightBottom.X, 0.0001, "左条右边界");
         }
         finally

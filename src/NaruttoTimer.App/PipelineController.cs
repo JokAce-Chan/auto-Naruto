@@ -89,8 +89,8 @@ public sealed class PipelineController : IDisposable
         try
         {
             var reading = _recognizer.Recognize(frame);
-            _engine.Update(Side.Left, reading.LeftValue);
-            _engine.Update(Side.Right, reading.RightValue);
+            _engine.Update(Side.Left, reading.LeftValue, reading.LeftEmptyCount);
+            _engine.Update(Side.Right, reading.RightValue, reading.RightEmptyCount);
             RecognitionUpdated?.Invoke(reading);
         }
         catch (Exception ex)

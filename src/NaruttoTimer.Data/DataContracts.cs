@@ -12,7 +12,7 @@ public sealed class AppSettings
     public int VideoHeight { get; set; } = 720;
     public int MaxFps { get; set; } = 30;
 
-    /// <summary>标注配置（左右能量条 / 识别模式）。</summary>
+    /// <summary>标注配置（左右能量条）。</summary>
     public LabelImageConfig Label { get; set; } = LabelImageConfig.CreateDefault();
 
     /// <summary>替换身冷却时长（秒）。源项目 cdSeconds = 14.5。</summary>
@@ -30,8 +30,8 @@ public sealed class AppSettings
     /// <summary>NMS IoU 阈值。源项目 0.25。</summary>
     public double NmsThreshold { get; set; } = 0.25;
 
-    /// <summary>传统模式灰度阈值。源项目 EnergyDetector.colorThreshold = 110。</summary>
-    public int TraditionalGrayThreshold { get; set; } = 110;
+    /// <summary>判定方式（AI 模式）：值判定 / 空豆判定。空豆判定可覆盖 6 格条（空豆 5、6）。</summary>
+    public EnergyJudgement Judgement { get; set; } = EnergyJudgement.Value;
 
     public int OverlayOpacityPercent { get; set; } = 55;
     public int OverlayTextOpacityPercent { get; set; } = 100;

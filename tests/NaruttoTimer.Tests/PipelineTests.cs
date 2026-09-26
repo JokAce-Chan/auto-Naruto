@@ -206,6 +206,45 @@ public static class PipelineTests
             TestTemp.Delete(dir);
         }
     }
+
+    [Fact]
+    public static void 空豆判定_空豆4到5触发_并写入数据存储()
+    {
+        var capture = new FakeCapture();
+        var recognizer = new FakeRecognizer();
+        var engine = new EnergyRuleEngine(14.5, 3) { Judgement = EnergyJudgement.EmptyCount };
+        var dir = TestTemp.NewDir();
+        var store = new DataStore(dir);
+        var pipeline = new PipelineController(capture, recognizer, engine, store) { InferenceIntervalMs = 0 };
+        try
+        {
+            TriggerEvent? trigger = null;
+            pipeline.Triggered += evt => trigger = evt;
+            pipeline.Start();
+
+            // 左侧空豆稳定 4（3 帧）建立基线，再稳定到 5（3 帧）判定加 1；右侧恒为空豆 6。
+            recognizer.EnqueueEmpty(4, 6);
+            recognizer.EnqueueEmpty(4, 6);
+            recognizer.EnqueueEmpty(4, 6);
+            recognizer.EnqueueEmpty(5, 6);
+            recognizer.EnqueueEmpty(5, 6);
+            recognizer.EnqueueEmpty(5, 6);
+
+            var t0 = DateTime.UtcNow;
+            for (int i = 0; i < 6; i++) capture.Emit(Frame(t0.AddMilliseconds(i * 10)));
+
+            Check.True(trigger != null, "空豆 4→5 应触发");
+            Check.Equal(Side.Left, trigger!.Side, "左侧");
+            Check.Equal(4, trigger.OldValue, "旧空豆");
+            Check.Equal(5, trigger.NewValue, "新空豆");
+            Check.Equal(1, store.GetTriggers().Count, "数据存储应有 1 条触发事件");
+        }
+        finally
+        {
+            pipeline.Dispose();
+            TestTemp.Delete(dir);
+        }
+    }
 }
 
 /// <summary>Fake 采集源（不依赖设备）。</summary>
@@ -244,7 +283,7 @@ public sealed class FakeRecognizer : IEnergyRecognizer
 {
     private readonly Queue<EnergyReading> _queue = new();
 
-    public EnergyReading Fallback { get; set; } = new(0, 0, 4, 4, Array.Empty<EnergyDetection>(), Array.Empty<EnergyDetection>());
+    public EnergyReading Fallback { get; set; } = new(0, 0, EnergyRules.MaxValue, EnergyRules.MaxValue, Array.Empty<EnergyDetection>(), Array.Empty<EnergyDetection>());
     public int Calls { get; private set; }
 
     public void Enqueue(params int[] leftValues)
@@ -253,12 +292,28 @@ public sealed class FakeRecognizer : IEnergyRecognizer
         foreach (int v in leftValues) EnqueueReading(Reading(v, 0));
     }
 
+    /// <summary>直接按左右空豆数入队（供「空豆判定」用例使用）。</summary>
+    public void EnqueueEmpty(int leftEmpty, int rightEmpty) =>
+        EnqueueReading(EmptyReading(leftEmpty, rightEmpty));
+
+    private static EnergyReading EmptyReading(int leftEmpty, int rightEmpty)
+    {
+        static IReadOnlyList<EnergyDetection> Empty() => Array.Empty<EnergyDetection>();
+        return new EnergyReading(
+            EnergyRules.MaxValue - leftEmpty,
+            EnergyRules.MaxValue - rightEmpty,
+            leftEmpty,
+            rightEmpty,
+            Empty(),
+            Empty());
+    }
+
     public void EnqueueReading(EnergyReading reading) => _queue.Enqueue(reading);
 
     private static EnergyReading Reading(int left, int right)
     {
         static IReadOnlyList<EnergyDetection> Empty() => Array.Empty<EnergyDetection>();
-        return new EnergyReading(left, right, 4 - left, 4 - right, Empty(), Empty());
+        return new EnergyReading(left, right, EnergyRules.MaxValue - left, EnergyRules.MaxValue - right, Empty(), Empty());
     }
 
     public EnergyReading Recognize(CapturedFrame frame)

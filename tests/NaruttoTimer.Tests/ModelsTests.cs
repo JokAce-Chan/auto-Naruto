@@ -12,9 +12,16 @@ public static class ModelsTests
     }
 
     [Fact]
-    public static void 值上限为4豆()
+    public static void 值上限为6豆()
     {
-        Check.Equal(4, EnergyRules.MaxValue, "源项目固定 4 豆（clamp 0~4）");
+        Check.Equal(6, EnergyRules.MaxValue, "值上限 6（clamp 0~6，使空豆 0~6 全程可见）");
+    }
+
+    [Fact]
+    public static void 判定方式_默认值判定_可切空豆判定()
+    {
+        Check.Equal(0, (int)EnergyJudgement.Value, "值判定");
+        Check.Equal(1, (int)EnergyJudgement.EmptyCount, "空豆判定");
     }
 
     [Fact]

@@ -7,10 +7,9 @@ namespace NaruttoTimer.Tests;
 public static class LabelImageConfigTests
 {
     [Fact]
-    public static void 默认配置_有效且为AI模式()
+    public static void 默认配置_有效()
     {
         var c = LabelImageConfig.CreateDefault();
-        Check.Equal(LabelMode.AI, c.Mode, "默认模式");
         Check.Equal(null, c.Validate(), "默认配置应校验通过");
     }
 
@@ -50,25 +49,22 @@ public static class LabelImageConfigTests
 
         copy.EnergyBar.Left.LeftTop.X = 0.123;
         copy.EnergyBar.Left.RightBottom.Y = 0.987;
-        copy.Mode = LabelMode.TRADITIONAL;
 
         Check.NotEqual(0.123, origin.EnergyBar.Left.LeftTop.X, "原对象左条不应被修改");
         Check.NotEqual(0.987, origin.EnergyBar.Left.RightBottom.Y, "原对象左条不应被修改");
-        Check.Equal(LabelMode.AI, origin.Mode, "原对象模式不应被修改");
     }
 
     [Fact]
-    public static void JSON往返_保留属性名与模式字符串()
+    public static void JSON往返_保留属性名与矩形()
     {
         var origin = LabelImageConfig.CreateDefault();
-        origin.Mode = LabelMode.TRADITIONAL;
+        origin.EnergyBar.Left = new LabelRect(0.11, 0.22, 0.33, 0.44);
         var json = JsonSerializer.Serialize(origin);
 
         Check.True(json.Contains("energy_bar"), "含 energy_bar 字段名");
-        Check.True(json.Contains("\"TRADITIONAL\""), "模式以字符串保存");
 
         var back = JsonSerializer.Deserialize<LabelImageConfig>(json)!;
-        Check.Equal(LabelMode.TRADITIONAL, back.Mode, "模式还原");
+        Check.Near(origin.EnergyBar.Left.RightBottom.X, back.EnergyBar.Left.RightBottom.X, 0.0001, "左条还原");
         Check.Near(origin.EnergyBar.Right.LeftTop.X, back.EnergyBar.Right.LeftTop.X, 0.0001, "右条还原");
     }
 }
