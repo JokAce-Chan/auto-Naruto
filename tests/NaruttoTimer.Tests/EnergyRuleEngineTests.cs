@@ -46,7 +46,6 @@ public static class EnergyRuleEngineTests
         Feed(e, Side.Left, 4, 3);
         Check.Equal(0, triggers, "首次读数不应触发");
         Check.Equal(4, e.LeftValue, "左值记录");
-        Check.Equal(4, e.LeftStableValue, "左稳定值");
         Check.Near(0.0, e.GetSnapshot().LeftSeconds, 0.001, "秒数保持 0");
     }
 
@@ -229,6 +228,5 @@ public static class EnergyRuleEngineTests
 
         Check.Near(0.0, e.GetSnapshot().LeftSeconds, 0.001, "倒计时清零");
         Check.Equal(0, e.LeftValue, "左值清零");
-        Check.Equal(0, e.LeftStableValue, "左稳定值清零");
     }
 }

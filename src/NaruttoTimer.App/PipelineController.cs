@@ -41,8 +41,6 @@ public sealed class PipelineController : IDisposable
         get { lock (_lock) return _running; }
     }
 
-    public ICaptureSource Capture => _capture;
-    public IEnergyRecognizer Recognizer => _recognizer;
     public EnergyRuleEngine Engine => _engine;
 
     public void Start()

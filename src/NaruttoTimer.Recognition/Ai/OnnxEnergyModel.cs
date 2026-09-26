@@ -54,7 +54,6 @@ public sealed class OnnxEnergyModel : IDisposable
         _nms = (float)nms;
     }
 
-    public string InputName => _inputName;
     public int InputWidth => _inputWidth;
     public int InputHeight => _inputHeight;
     public double ConfidenceThreshold => _confidence;

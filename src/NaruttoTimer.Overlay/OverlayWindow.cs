@@ -11,7 +11,7 @@ namespace NaruttoTimer.Overlay;
 /// 半透明无边框置顶框：显示 "0.00  0.00"（左绿右红，可自选颜色）。
 /// 字号随框高、间距随框宽；未锁定时可拖动/缩放；锁定后不可拖动/缩放。
 /// </summary>
-public sealed class OverlayWindow : Window, IOverlayService
+public sealed class OverlayWindow : Window
 {
     private readonly TextBlock _leftText = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _rightText = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -81,8 +81,6 @@ public sealed class OverlayWindow : Window, IOverlayService
         Update(CountdownSnapshot.Zero);
     }
 
-    public bool IsLocked => _locked;
-
     private void ApplyLayout()
     {
         double fontSize = OverlayFormat.FontSizeForHeight(ActualHeight > 0 ? ActualHeight : Height);
@@ -111,7 +109,7 @@ public sealed class OverlayWindow : Window, IOverlayService
         return new(Color.FromArgb((byte)alpha, 0xFF, 0xFF, 0xFF));
     }
 
-    // ── IOverlayService ──
+    // ── 外部控制接口 ──
 
     public new void Show()
     {

@@ -1,6 +1,5 @@
 using NaruttoTimer.Capture;
 using NaruttoTimer.Data;
-using NaruttoTimer.Rules;
 
 namespace NaruttoTimer.Recognition;
 
@@ -17,10 +16,7 @@ public sealed record EnergyReading(
     int LeftEmptyCount,
     int RightEmptyCount,
     IReadOnlyList<EnergyDetection> LeftDetections,
-    IReadOnlyList<EnergyDetection> RightDetections)
-{
-    public int GetValue(Side side) => side == Side.Left ? LeftValue : RightValue;
-}
+    IReadOnlyList<EnergyDetection> RightDetections);
 
 /// <summary>识别参数（模型 / 标注 / 阈值）。</summary>
 public sealed record RecognizerOptions(
@@ -37,5 +33,4 @@ public sealed record RecognizerOptions(
 public interface IEnergyRecognizer : IDisposable
 {
     EnergyReading Recognize(CapturedFrame frame);
-    void Reset();
 }

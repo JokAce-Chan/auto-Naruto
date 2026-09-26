@@ -322,7 +322,5 @@ public sealed class FakeRecognizer : IEnergyRecognizer
         return _queue.Count > 0 ? _queue.Dequeue() : Fallback;
     }
 
-    public void Reset() { }
-
     public void Dispose() { }
 }

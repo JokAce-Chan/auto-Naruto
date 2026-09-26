@@ -36,10 +36,6 @@ public sealed class EnergyRuleEngine
     public int LeftEmptyCount { get; private set; }
     public int RightEmptyCount { get; private set; }
 
-    /// <summary>左/右最近一次确认的稳定值。</summary>
-    public int LeftStableValue => _leftProcessor.StableValue;
-    public int RightStableValue => _rightProcessor.StableValue;
-
     public event EventHandler<SkillUsedEventArgs>? SkillUsed;
 
     /// <summary>喂入单侧识别结果；返回本次是否判定为使用技能。</summary>

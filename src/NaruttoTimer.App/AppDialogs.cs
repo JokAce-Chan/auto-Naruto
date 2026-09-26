@@ -9,6 +9,7 @@ using NaruttoTimer.Capture;
 using NaruttoTimer.Data;
 using NaruttoTimer.Overlay;
 using NaruttoTimer.Rules;
+using static NaruttoTimer.App.DialogUi;
 
 namespace NaruttoTimer.App;
 
@@ -18,9 +19,6 @@ namespace NaruttoTimer.App;
 /// </summary>
 public sealed class LabelConfigDialog : Window
 {
-    private static readonly Color LeftBarColor = Color.FromRgb(0x2E, 0xCC, 0x71);
-    private static readonly Color RightBarColor = Color.FromRgb(0xE0, 0x3E, 0x3E);
-
     private readonly CapturedFrame? _frame;
     private readonly Func<LabelImageConfig, string>? _tester;
     private readonly LabelLayoutEditor _editor;
@@ -345,22 +343,6 @@ public sealed class LabelConfigDialog : Window
         Canvas.SetTop(text, Math.Max(0, y - 18));
         _canvas.Children.Add(text);
     }
-
-    private static Button MakeButton(string text, Action onClick)
-    {
-        var btn = new Button
-        {
-            Content = text,
-            Padding = new Thickness(14, 5, 14, 5),
-            Margin = new Thickness(0, 0, 8, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0x24, 0x29, 0x33)),
-            Foreground = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3B, 0x47)),
-            Cursor = Cursors.Hand,
-        };
-        btn.Click += (_, _) => onClick();
-        return btn;
-    }
 }
 
 /// <summary>数据保存对话框：事件列表 + 导出。</summary>
@@ -428,22 +410,6 @@ public sealed class DataDialog : Window
             _store.ExportJson(dlg.FileName);
             MessageBox.Show(this, $"已导出：{dlg.FileName}", "数据保存", MessageBoxButton.OK, MessageBoxImage.Information);
         }
-    }
-
-    private static Button MakeButton(string text, Action onClick)
-    {
-        var btn = new Button
-        {
-            Content = text,
-            Padding = new Thickness(14, 5, 14, 5),
-            Margin = new Thickness(0, 0, 8, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0x24, 0x29, 0x33)),
-            Foreground = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3B, 0x47)),
-            Cursor = Cursors.Hand,
-        };
-        btn.Click += (_, _) => onClick();
-        return btn;
     }
 }
 
@@ -560,21 +526,5 @@ public sealed class SettingsDialog : Window
         if (!int.TryParse(box.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
             throw new ArgumentException($"{name} 不是有效整数");
         return value;
-    }
-
-    private static Button MakeButton(string text, Action onClick)
-    {
-        var btn = new Button
-        {
-            Content = text,
-            Padding = new Thickness(14, 5, 14, 5),
-            Margin = new Thickness(0, 0, 8, 0),
-            Background = new SolidColorBrush(Color.FromRgb(0x24, 0x29, 0x33)),
-            Foreground = Brushes.White,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x34, 0x3B, 0x47)),
-            Cursor = Cursors.Hand,
-        };
-        btn.Click += (_, _) => onClick();
-        return btn;
     }
 }
