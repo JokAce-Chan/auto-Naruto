@@ -10,12 +10,18 @@ namespace NaruttoTimer.Capture;
 public sealed class H264StreamDecoder : IDisposable
 {
     private const int PendingCapacity = 2 * 1024 * 1024;
+    /// <summary>BGRA 帧缓冲池深度：同一块缓冲至少间隔 4 帧（≈133ms@30fps）才会被复用。</summary>
+    private const int BgraPoolSize = 4;
 
     private readonly IntPtr _codecCtx;
     private readonly IntPtr _frame;
     private readonly IntPtr _packet;
     private readonly byte[] _pending = new byte[PendingCapacity];
     private int _pendingLen;
+    private readonly List<byte[]> _bgraPool = new();
+    private int _poolCursor;
+    private int _poolWidth;
+    private int _poolHeight;
     private readonly object _lock = new();
 
     /// <summary>解码出帧：width, height, BGRA 像素, 时间戳。</summary>
@@ -155,10 +161,32 @@ public sealed class H264StreamDecoder : IDisposable
             int w = frame.Width, h = frame.Height;
             if (w > 0 && h > 0 && frame.Format == 0) // AV_PIX_FMT_YUV420P == 0
             {
-                var bgra = YuvConverter.ToBgra(_frame, w, h);
+                var bgra = RentBgraBuffer(w, h);
+                YuvConverter.ToBgra(_frame, w, h, bgra);
                 FrameDecoded?.Invoke(w, h, bgra, DateTime.UtcNow);
             }
         }
+    }
+
+    /// <summary>取一块可复用的 BGRA 缓冲区（按分辨率分池、轮转复用），避免每帧分配 3.7MB。</summary>
+    private byte[] RentBgraBuffer(int width, int height)
+    {
+        if (_poolWidth != width || _poolHeight != height)
+        {
+            _bgraPool.Clear();
+            _poolCursor = 0;
+            _poolWidth = width;
+            _poolHeight = height;
+        }
+        if (_bgraPool.Count < BgraPoolSize)
+        {
+            var fresh = new byte[width * height * 4];
+            _bgraPool.Add(fresh);
+            return fresh;
+        }
+        var buf = _bgraPool[_poolCursor];
+        _poolCursor = (_poolCursor + 1) % _bgraPool.Count;
+        return buf;
     }
 
     public void Dispose()

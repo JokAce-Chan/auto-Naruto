@@ -24,4 +24,20 @@ public static class MatUtil
     }
 
     public static Mat FromBgra(CapturedFrame frame) => FromBgra(frame.Width, frame.Height, frame.Pixels);
+
+    /// <summary>BGRA32 像素拷入已存在的 Mat（复用缓冲区，避免每帧新建 3.7MB Mat）。</summary>
+    public static void CopyBgra(Mat destination, int width, int height, byte[] pixels)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(pixels);
+        if (width <= 0) throw new ArgumentOutOfRangeException(nameof(width), "宽度必须为正");
+        if (height <= 0) throw new ArgumentOutOfRangeException(nameof(height), "高度必须为正");
+        int expected = width * height * 4;
+        if (pixels.Length < expected)
+            throw new ArgumentException($"像素缓冲区长度不足：需要 {expected}，实际 {pixels.Length}", nameof(pixels));
+
+        if (destination.Rows != height || destination.Cols != width || destination.Type() != MatType.CV_8UC4)
+            destination.Create(height, width, MatType.CV_8UC4);
+        Marshal.Copy(pixels, 0, destination.Data, expected);
+    }
 }

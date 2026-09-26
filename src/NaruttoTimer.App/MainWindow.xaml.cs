@@ -11,6 +11,7 @@ using NaruttoTimer.Overlay;
 using NaruttoTimer.Recognition;
 using NaruttoTimer.Recognition.ImageProcess;
 using NaruttoTimer.Rules;
+using static NaruttoTimer.App.DialogUi;
 
 namespace NaruttoTimer.App;
 
@@ -21,9 +22,6 @@ public partial class MainWindow : Window
     private static readonly Brush Green = Brush("#2ECC71");
     private static readonly Brush Yellow = Brush("#E6A23C");
     private static readonly Brush Red = Brush("#FF5C5C");
-
-    private static readonly Color LeftBarColor = Color.FromRgb(0x2E, 0xCC, 0x71);
-    private static readonly Color RightBarColor = Color.FromRgb(0xE0, 0x3E, 0x3E);
     private static readonly Color DetectionColor = Color.FromRgb(0xFF, 0x8C, 0x3C);
 
     private readonly string _dataRoot;
@@ -48,6 +46,17 @@ public partial class MainWindow : Window
     private double _previewScale = 1;
     private double _previewOffsetX;
     private double _previewOffsetY;
+    private WriteableBitmap? _previewBitmap;
+    private System.Windows.Shapes.Rectangle? _leftBox;
+    private System.Windows.Shapes.Rectangle? _rightBox;
+    private TextBlock? _leftLabel;
+    private TextBlock? _rightLabel;
+
+    // 识别小点对象池：每帧复用，不再逐帧新建/销毁。
+    private readonly List<System.Windows.Shapes.Rectangle> _dotPool = new();
+    private int _dotCursor;
+    private readonly SolidColorBrush _detectionFill = new(Color.FromArgb(90, DetectionColor.R, DetectionColor.G, DetectionColor.B));
+    private readonly SolidColorBrush _detectionStroke = new(DetectionColor);
     private readonly string _logPath;
     private bool _firstFrameLogged;
     private int _fpsLogCounter;
@@ -434,11 +443,13 @@ public partial class MainWindow : Window
         try
         {
             var f = _lastFrame;
+            // 帧缓冲会被解码线程轮转复用，导出前先快照，避免编码过程中被覆写。
+            var pixels = (byte[])f.Pixels.Clone();
             var dir = Path.Combine(_dataRoot, "debug");
             Directory.CreateDirectory(dir);
             var path = Path.Combine(dir, $"frame-{DateTime.Now:HHmmssfff}.png");
             int stride = f.Width * 4;
-            var bmp = BitmapSource.Create(f.Width, f.Height, 96, 96, PixelFormats.Bgra32, null, f.Pixels, stride);
+            var bmp = BitmapSource.Create(f.Width, f.Height, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
             var enc = new PngBitmapEncoder();
             enc.Frames.Add(BitmapFrame.Create(bmp));
             using (var fs = File.Create(path)) enc.Save(fs);
@@ -606,9 +617,13 @@ public partial class MainWindow : Window
         }
         if (!_previewVisible) return;
 
-        var bmp = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgra32, null);
-        bmp.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), frame.Pixels, frame.Width * 4, 0);
-        PreviewImage.Source = bmp;
+        // 复用同一块 WriteableBitmap（仅尺寸变化时重建），避免每帧新建 3.7MB 位图。
+        if (_previewBitmap == null || _previewBitmap.PixelWidth != frame.Width || _previewBitmap.PixelHeight != frame.Height)
+        {
+            _previewBitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgra32, null);
+            PreviewImage.Source = _previewBitmap;
+        }
+        _previewBitmap.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), frame.Pixels, frame.Width * 4, 0);
         PreviewImage.Visibility = Visibility.Visible;
         PreviewPlaceholder.Visibility = Visibility.Collapsed;
         PreviewCanvas.Visibility = Visibility.Visible;
@@ -620,10 +635,15 @@ public partial class MainWindow : Window
         _previewOffsetX = origin.X + (aw - frame.Width * _previewScale) / 2;
         _previewOffsetY = origin.Y + (ah - frame.Height * _previewScale) / 2;
 
-        PreviewCanvas.Children.Clear();
+        // 复用画布对象：框/标签/识别小点只建一次，之后仅更新位置与文本。
+        EnsurePreviewVisuals();
         var layout = _editDraft;
-        DrawLabelRect(layout.EnergyBar.Left, LeftBarColor, PreviewLabel("左", _lastReading?.LeftValue, _lastReading?.LeftEmptyCount), _lastReading?.LeftDetections);
-        DrawLabelRect(layout.EnergyBar.Right, RightBarColor, PreviewLabel("右", _lastReading?.RightValue, _lastReading?.RightEmptyCount), _lastReading?.RightDetections);
+        _dotCursor = 0;
+        UpdateLabelRect(_leftBox!, _leftLabel!, layout.EnergyBar.Left,
+            PreviewLabel("左", _lastReading?.LeftValue, _lastReading?.LeftEmptyCount), _lastReading?.LeftDetections);
+        UpdateLabelRect(_rightBox!, _rightLabel!, layout.EnergyBar.Right,
+            PreviewLabel("右", _lastReading?.RightValue, _lastReading?.RightEmptyCount), _lastReading?.RightDetections);
+        HideUnusedDots();
     }
 
     private string PreviewLabel(string side, int? value, int? empty)
@@ -634,55 +654,98 @@ public partial class MainWindow : Window
             : $"{side} 值 {value}（空豆 {empty}）";
     }
 
-    private void DrawLabelRect(LabelRect rect, Color color, string label, IReadOnlyList<EnergyDetection>? detections)
+    /// <summary>首次渲染时创建画布对象（框、标签）；小点按需插入到标签之前。</summary>
+    private void EnsurePreviewVisuals()
     {
-        if (rect == null) return;
-        double x = _previewOffsetX + rect.LeftTop.X * _lastFrame!.Width * _previewScale;
-        double y = _previewOffsetY + rect.LeftTop.Y * _lastFrame.Height * _previewScale;
-        double w = Math.Max(1, rect.Width * _lastFrame.Width * _previewScale);
-        double h = Math.Max(1, rect.Height * _lastFrame.Height * _previewScale);
+        if (_leftBox != null) return;
+        _leftBox = NewRoiBox(LeftBarColor);
+        _rightBox = NewRoiBox(RightBarColor);
+        _leftLabel = NewRoiLabel(LeftBarColor);
+        _rightLabel = NewRoiLabel(RightBarColor);
+        PreviewCanvas.Children.Add(_leftBox);
+        PreviewCanvas.Children.Add(_rightBox);
+        PreviewCanvas.Children.Add(_leftLabel);
+        PreviewCanvas.Children.Add(_rightLabel);
+    }
 
-        var border = new System.Windows.Shapes.Rectangle
-        {
-            Width = w,
-            Height = h,
-            Stroke = new SolidColorBrush(color),
-            StrokeThickness = 2,
-            StrokeDashArray = new DoubleCollection { 4, 2 },
-            Fill = Brushes.Transparent,
-        };
-        Canvas.SetLeft(border, x);
-        Canvas.SetTop(border, y);
-        PreviewCanvas.Children.Add(border);
+    private static System.Windows.Shapes.Rectangle NewRoiBox(Color color) => new()
+    {
+        Stroke = new SolidColorBrush(color),
+        StrokeThickness = 2,
+        StrokeDashArray = new DoubleCollection { 4, 2 },
+        Fill = Brushes.Transparent,
+        IsHitTestVisible = false,
+    };
 
-        if (detections != null)
+    private static TextBlock NewRoiLabel(Color color) => new()
+    {
+        Foreground = new SolidColorBrush(color),
+        FontSize = 13,
+        FontWeight = FontWeights.Bold,
+        IsHitTestVisible = false,
+    };
+
+    /// <summary>更新单个 AB 框：位置/尺寸/标签文本/识别小点（复用已有对象）。</summary>
+    private void UpdateLabelRect(System.Windows.Shapes.Rectangle box, TextBlock label, LabelRect rect, string text, IReadOnlyList<EnergyDetection>? detections)
+    {
+        if (rect == null)
         {
-            foreach (var d in detections)
-            {
-                var dot = new System.Windows.Shapes.Rectangle
-                {
-                    Width = Math.Max(3, d.Width * w),
-                    Height = Math.Max(3, d.Height * h),
-                    Fill = new SolidColorBrush(Color.FromArgb(90, DetectionColor.R, DetectionColor.G, DetectionColor.B)),
-                    Stroke = new SolidColorBrush(DetectionColor),
-                    StrokeThickness = 1,
-                };
-                Canvas.SetLeft(dot, x + d.X * w);
-                Canvas.SetTop(dot, y + d.Y * h);
-                PreviewCanvas.Children.Add(dot);
-            }
+            box.Visibility = Visibility.Collapsed;
+            label.Visibility = Visibility.Collapsed;
+            return;
         }
+        double fw = _lastFrame!.Width, fh = _lastFrame.Height;
+        double x = _previewOffsetX + rect.LeftTop.X * fw * _previewScale;
+        double y = _previewOffsetY + rect.LeftTop.Y * fh * _previewScale;
+        double w = Math.Max(1, rect.Width * fw * _previewScale);
+        double h = Math.Max(1, rect.Height * fh * _previewScale);
 
-        var text = new TextBlock
+        box.Visibility = Visibility.Visible;
+        box.Width = w;
+        box.Height = h;
+        Canvas.SetLeft(box, x);
+        Canvas.SetTop(box, y);
+
+        label.Visibility = Visibility.Visible;
+        label.Text = text;
+        Canvas.SetLeft(label, x);
+        Canvas.SetTop(label, Math.Max(0, y - 18));
+
+        if (detections == null) return;
+        foreach (var d in detections)
         {
-            Text = label,
-            Foreground = new SolidColorBrush(color),
-            FontSize = 13,
-            FontWeight = FontWeights.Bold,
+            var dot = RentDot();
+            dot.Visibility = Visibility.Visible;
+            dot.Width = Math.Max(3, d.Width * w);
+            dot.Height = Math.Max(3, d.Height * h);
+            Canvas.SetLeft(dot, x + d.X * w);
+            Canvas.SetTop(dot, y + d.Y * h);
+        }
+    }
+
+    /// <summary>取一个复用的识别小点；数量不足时创建并插到标签之前，保证标签在最上层。</summary>
+    private System.Windows.Shapes.Rectangle RentDot()
+    {
+        if (_dotCursor < _dotPool.Count) return _dotPool[_dotCursor++];
+
+        var dot = new System.Windows.Shapes.Rectangle
+        {
+            Fill = _detectionFill,
+            Stroke = _detectionStroke,
+            StrokeThickness = 1,
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed,
         };
-        Canvas.SetLeft(text, x);
-        Canvas.SetTop(text, Math.Max(0, y - 18));
-        PreviewCanvas.Children.Add(text);
+        _dotPool.Add(dot);
+        PreviewCanvas.Children.Insert(2 + _dotPool.Count - 1, dot);
+        _dotCursor++;
+        return dot;
+    }
+
+    private void HideUnusedDots()
+    {
+        for (int i = _dotCursor; i < _dotPool.Count; i++)
+            if (_dotPool[i].Visibility != Visibility.Collapsed) _dotPool[i].Visibility = Visibility.Collapsed;
     }
 
     // ── 主界面预览区拖拽调整标注 ──

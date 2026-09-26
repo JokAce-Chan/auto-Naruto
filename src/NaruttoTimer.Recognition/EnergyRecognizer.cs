@@ -19,6 +19,7 @@ public sealed class EnergyRecognizer : IEnergyRecognizer
     private readonly object _sync = new();
     private RecognizerOptions _options;
     private ImageCropper _cropper;
+    private Mat? _frameMat;
     private bool _disposed;
 
     public EnergyRecognizer(RecognizerOptions options)
@@ -62,13 +63,6 @@ public sealed class EnergyRecognizer : IEnergyRecognizer
 
     public EnergyReading Recognize(CapturedFrame frame)
     {
-        using var mat = MatUtil.FromBgra(frame);
-        return Recognize(mat);
-    }
-
-    /// <summary>直接以 BGRA Mat 识别（便于测试与离线帧）。</summary>
-    public EnergyReading Recognize(Mat bgra)
-    {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         RecognizerOptions options;
@@ -79,9 +73,11 @@ public sealed class EnergyRecognizer : IEnergyRecognizer
             cropper = _cropper;
         }
 
-        return Recognize(bgra, options, cropper);
+        // 复用同一块 Mat（仅管线线程使用），避免每帧分配整帧内存。
+        _frameMat ??= new Mat();
+        MatUtil.CopyBgra(_frameMat, frame.Width, frame.Height, frame.Pixels);
+        return Recognize(_frameMat, options, cropper);
     }
-
     /// <summary>用指定参数识别一帧（用于「区域标注」弹窗的即时测试），不改变当前设置。</summary>
     public EnergyReading TestRecognize(RecognizerOptions options, Mat bgra)
     {
@@ -111,15 +107,12 @@ public sealed class EnergyRecognizer : IEnergyRecognizer
             combined.RightDetections);
     }
 
-    public void Reset()
-    {
-        // 识别器本身无跨帧状态（稳定/倒计时由规则层维护）。
-    }
-
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        _frameMat?.Dispose();
+        _frameMat = null;
         _model?.Dispose();
     }
 }
