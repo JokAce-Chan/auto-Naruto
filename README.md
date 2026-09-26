@@ -1,6 +1,6 @@
 # 替身计时器（NaruttoTimer / auto-Naruto）
 
-配合雷电模拟器游戏使用的“能量条识别 + 14.5 秒倒计时”工具。
+配合雷电模拟器游戏使用的“空豆识别 + 14.5 秒倒计时”工具。
 
 ## 功能
 - scrcpy 视频流实时取帧，识别屏幕顶部左右两侧能量条（整帧 1280×720，不再裁切顶部条带）
@@ -48,6 +48,11 @@ dotnet run --project src/NaruttoTimer.App
 - `vendor/scrcpy/` scrcpy 组件（发布时生成，不入库）
 - `assets/` 图标与素材
 - `data/` 运行数据（不入库）
+
+## 下载与运行
+- 到 Releases 页下载 NaruttoTimer-v0.3-win-x64.zip 并解压
+- 双击 NaruttoTimer.App.exe（已自包含，无需安装 .NET）
+- 首次运行在设备下拉框选择你的模拟器设备号
 
 ## 文档
 - `docs/使用说明.md` 最终用户使用说明
