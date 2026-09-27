@@ -40,6 +40,20 @@ public sealed class AppSettings
     public bool OverlayLocked { get; set; }
     public string DataDirectory { get; set; } = "data";
 
+    // ── 主界面记忆（验收稿 v6 右侧选项栏）──
+
+    /// <summary>右侧选项栏宽度（px，250–550）。</summary>
+    public int SidePanelWidth { get; set; } = 300;
+
+    /// <summary>右侧选项栏是否折叠为图标条（58px）。</summary>
+    public bool SidePanelCollapsed { get; set; }
+
+    /// <summary>右侧分组开合状态（键：timer / arena / debug / icons）。</summary>
+    public Dictionary<string, bool> GroupOpen { get; set; } = new();
+
+    /// <summary>界面图标（键见 UiIcons.Targets，值为 Segoe MDL2 字形）。</summary>
+    public Dictionary<string, string> UiIcons { get; set; } = new();
+
     public AppSettings Normalize()
     {
         VideoWidth = VideoWidth <= 0 ? 1280 : VideoWidth;
@@ -49,6 +63,9 @@ public sealed class AppSettings
         InferenceIntervalMs = InferenceIntervalMs < 16 ? 16 : InferenceIntervalMs;
         Label ??= LabelImageConfig.CreateDefault();
         Label.EnergyBar ??= LabelImageConfig.CreateDefault().EnergyBar;
+        SidePanelWidth = Math.Clamp(SidePanelWidth, 250, 550);
+        GroupOpen ??= new Dictionary<string, bool>();
+        UiIcons ??= new Dictionary<string, string>();
         return this;
     }
 }

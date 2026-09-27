@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>替身计时器 · 主界面验收稿 v5</title>
+<style>
+  :root{
+    --bg:#0E1013; --bar:#16191E; --title:#1A1D23;
+    --nav:#14171C; --card:#1B1F26; --line:#2A2F38; --line2:#2A3B52;
+    --hover:#20252D;
+    --fg:#E6E8EC; --body:#9AA3B0; --muted:#6B7480;
+    --accent:#2E6FD0; --accent-soft:#1D2A40;
+    --green:#2ECC71; --red:#FF5C5C; --yellow:#E6A23C;
+    --preview:#0D1B2E; --blue:#7EC3FF;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;padding:28px 20px 60px;background:#07080A;
+    font-family:"Microsoft YaHei UI","Microsoft YaHei",Segoe UI,sans-serif;color:var(--fg);
+    display:flex;flex-direction:column;align-items:center;}
+  .glyph{font-family:"Segoe MDL2 Assets","Segoe Fluent Icons",sans-serif;font-style:normal;}
+  .pagehint{width:1320px;margin:0 0 14px;color:#5F6A78;font-size:12px;line-height:1.9;}
+  .pagehint b{color:#8FA3BC;font-weight:600;}
+  .pagehint code{background:#1E232B;border:1px solid #2A2F38;border-radius:4px;padding:1px 5px;color:#A8B6C6;font-size:11px;}
+  .pagehint .rst{float:right;background:#242933;color:#DDE2EA;border:1px solid #343B47;border-radius:6px;
+    padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit;}
+
+  .app{width:1320px;height:760px;background:var(--bg);border:1px solid #23272E;border-radius:10px;
+    overflow:hidden;display:flex;flex-direction:column;box-shadow:0 18px 60px rgba(0,0,0,.6);}
+
+  /* 标题栏 */
+  .titlebar{height:38px;flex:0 0 auto;background:var(--title);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;padding:0 14px;gap:10px;}
+  .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);display:flex;
+    align-items:center;justify-content:center;font-size:12px;color:#fff;}
+  .title{font-size:14px;font-weight:600;}
+  .ver{font-size:11px;color:var(--muted);}
+
+  /* 工具栏 */
+  .toolbar{flex:0 0 auto;background:var(--bar);border-bottom:1px solid var(--line);
+    padding:8px 14px;display:flex;align-items:center;gap:10px;}
+  .tgroup{display:flex;align-items:center;gap:8px;}
+  .vsep{width:1px;height:20px;background:#2A2F38;margin:0 4px;}
+  .dot{width:9px;height:9px;border-radius:5px;background:var(--green);}
+  .devname{font-size:12px;color:var(--body);}
+  .btn{background:#242933;color:#DDE2EA;border:1px solid #343B47;border-radius:6px;
+    padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  .btn:hover{background:#2C333F;}
+  .combo{background:#F2F4F7;color:#000;border:1px solid #8A93A0;border-radius:6px;height:26px;
+    padding:0 8px;font-size:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .combo .car{color:#5A6472;font-size:10px;}
+  .w190{width:190px;} .w110{width:110px;}
+  .sw{width:34px;height:18px;border-radius:9px;background:#3A4048;position:relative;cursor:pointer;flex:0 0 auto;}
+  .sw i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.15s;}
+  .sw.on{background:var(--green);} .sw.on i{left:18px;}
+  .swlabel{font-size:12px;color:var(--body);}
+
+  /* 主体：预览 + 右侧栏 */
+  .body{flex:1 1 auto;display:flex;min-height:0;}
+
+  .preview{flex:1 1 auto;margin:14px;border-radius:8px;background:var(--preview);
+    border:1px solid var(--line2);overflow:hidden;position:relative;min-width:0;}
+  .video{position:absolute;inset:0;
+    background:radial-gradient(120% 70% at 50% 0%, #1B3A5C 0%, #12283F 45%, #0B1828 100%);}
+  .barstrip{position:absolute;left:0;right:0;top:26px;height:74px;}
+  .roi{position:absolute;border:2px dashed;border-radius:2px;}
+  .roi.left{border-color:var(--green);} .roi.right{border-color:#E03E3E;}
+  .roi .tag{position:absolute;left:0;top:-19px;font-size:13px;font-weight:700;white-space:nowrap;}
+  .roi.left .tag{color:#2ECC71;} .roi.right .tag{color:#E03E3E;}
+  .dotm{position:absolute;border:1px solid #FF8C3C;background:rgba(255,140,60,.35);border-radius:1px;}
+  .ph{position:absolute;left:0;right:0;bottom:14px;text-align:center;color:#5F7A99;font-size:12px;}
+
+  /* ── 右侧选项栏 ── */
+  .side{
+    position:relative;width:400px;flex:0 0 400px;background:var(--nav);
+    border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;overflow:hidden;
+    transition:width .16s ease, flex-basis .16s ease;
+  }
+  .side.resizing{transition:none;}
+  .side-resizer{position:absolute;top:0;left:0;bottom:0;width:7px;cursor:col-resize;z-index:6;}
+  .side-resizer::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;}
+  .side-resizer:hover::after,.side.resizing .side-resizer::after{background:var(--accent);}
+  body.resizing{user-select:none;cursor:col-resize;}
+
+  .side-scroll{flex:1;overflow-y:auto;padding:4px 0 10px;}
+  .side-pinned{border-top:1px solid var(--line);padding:8px;flex:0 0 auto;background:var(--nav);
+    display:flex;align-items:center;gap:8px;}
+
+  /* 分组（参考稿 .group-head / .group-items） */
+  .group{margin-bottom:4px;}
+  .group-head{display:flex;align-items:center;width:100%;padding:12px 10px 6px 14px;color:var(--muted);
+    background:none;border:0;font-family:inherit;cursor:pointer;text-align:left;}
+  .group-head:hover{color:#B9C2CE;}
+  .group-head .chev{width:0;height:0;border-left:4px solid currentColor;border-top:3px solid transparent;
+    border-bottom:3px solid transparent;margin-right:8px;transition:transform .15s;flex:0 0 auto;}
+  .group.open > .group-head .chev{transform:rotate(90deg) translateX(1px);}
+  .group-head .gtitle{font-size:12px;}
+  .group-head .badge{margin-left:auto;font-size:10px;color:#5A6472;}
+  .group-items{overflow:hidden;}
+  .group:not(.open) > .group-items{display:none;}
+
+  /* 组内条目 */
+  .item{margin:0 8px 1px;}
+  .item-head{display:flex;align-items:center;height:32px;padding:0 10px;border-radius:6px;color:var(--body);}
+  .item-head .ic{width:20px;text-align:center;flex:0 0 20px;font-size:14px;color:#7A828E;}
+  .item-head .label{font-size:13px;margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .item-head.on{background:var(--accent-soft);color:#CFE0F6;} .item-head.on .ic{color:#7EA6DC;}
+  .item-body{padding:2px 8px 10px 30px;}
+
+  .kv{font-size:11px;color:var(--body);line-height:1.85;}
+  .kv b{color:#C9D1DB;}
+  .kv .sep{color:#3A4048;}
+  .note{font-size:11px;color:#6B7480;line-height:1.7;margin-top:6px;}
+  .note.warn{color:#8A6D3B;}
+  .split{height:1px;background:#23272E;margin:8px 0;}
+
+  .row{display:flex;align-items:center;gap:8px;margin-top:9px;}
+  .row .lbl{font-size:11px;color:var(--body);white-space:nowrap;}
+  .row .val{font-size:11px;color:#C9D1DB;white-space:nowrap;min-width:34px;text-align:right;}
+  .slider{flex:1 1 auto;min-width:40px;max-width:150px;height:4px;border-radius:2px;background:#3A4048;position:relative;}
+  .slider i{position:absolute;top:-5px;width:14px;height:14px;border-radius:50%;background:#E6E8EC;
+    transform:translateX(-7px);}
+
+  .actbtn{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border-radius:6px;
+    font-size:12px;color:#DDE2EA;cursor:pointer;font-family:inherit;background:#20252D;border:1px solid #343B47;
+    text-align:left;margin-top:8px;}
+  .actbtn:hover{background:#2C333F;}
+  .actbtn .ic{width:18px;text-align:center;flex:0 0 18px;font-size:13px;color:#8A93A0;}
+
+  /* 设置（栏底固定） */
+  .pinned{display:flex;align-items:center;gap:8px;flex:1 1 auto;height:32px;padding:0 12px;border-radius:6px;
+    background:#20252D;border:1px solid #343B47;font-size:12px;font-weight:600;color:#DDE2EA;
+    cursor:pointer;font-family:inherit;}
+  .pinned:hover{background:#2C333F;}
+  .pinned .ic{font-size:14px;color:#8A93A0;width:18px;text-align:center;}
+  .railbtn{width:34px;height:32px;flex:0 0 34px;border-radius:6px;background:#20252D;border:1px solid #343B47;
+    color:#B9C2CE;cursor:pointer;font-size:12px;}
+  .railbtn:hover{background:#2C333F;color:#fff;}
+
+  /* 折叠成图标条 */
+  .side.collapsed{width:58px;flex-basis:58px;}
+  .side.collapsed .side-scroll,
+  .side.collapsed .side-pinned,
+  .side.collapsed .side-resizer{display:none;}
+  .side.collapsed .side-rail{display:flex;}
+  .side-rail{display:none;flex:1;flex-direction:column;align-items:center;gap:2px;padding:8px 0;min-height:0;}
+  .rail-item{width:42px;height:38px;display:flex;align-items:center;justify-content:center;
+    border:0;border-radius:6px;background:none;color:#9AA3B0;cursor:pointer;font-size:15px;}
+  .rail-item:hover{background:var(--hover);color:#E6E8EC;}
+  .rail-item.on{background:var(--accent-soft);color:#7EA6DC;}
+  .rail-sep{width:26px;height:1px;background:#2A2F38;margin:6px 0;}
+  .rail-spacer{flex:1 1 auto;}
+
+  /* 图标候选（验收用） */
+  .ichint{font-size:11px;color:#6B7480;line-height:1.7;}
+  .targets{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px;}
+  .chip{display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;
+    background:#1F242C;font-size:11px;color:var(--body);cursor:pointer;font-family:inherit;}
+  .chip:hover{border-color:#3E4A5C;}
+  .chip.sel{border-color:var(--accent);background:var(--accent-soft);color:#DDE2EA;}
+  .chip .g{font-size:13px;}
+  .icon-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(56px,1fr));gap:6px;}
+  .icon-cell{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px 5px;border-radius:6px;
+    border:1px solid var(--line);background:#1F242C;cursor:pointer;font-family:inherit;color:#DDE2EA;}
+  .icon-cell:hover{border-color:#3E4A5C;background:#242A33;}
+  .icon-cell.sel{border-color:var(--accent);background:var(--accent-soft);}
+  .icon-cell .g{font-size:16px;line-height:1;}
+  .icon-cell .n{font-size:9px;color:#6B7480;}
+  .railpreview{margin-top:10px;display:flex;gap:10px;align-items:flex-start;}
+  .railpreview .box{width:58px;border:1px solid var(--line);border-radius:8px;background:var(--nav);
+    padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:4px;}
+  .railpreview .box .g{width:38px;height:32px;display:flex;align-items:center;justify-content:center;
+    border-radius:6px;font-size:15px;color:#9AA3B0;}
+  .railpreview .box .g:first-child{background:var(--hover);}
+
+  /* 状态栏 */
+  .statusbar{flex:0 0 auto;height:30px;background:var(--bar);border-top:1px solid var(--line);
+    display:flex;align-items:center;gap:16px;padding:0 14px;font-size:11px;color:var(--body);}
+  .statusbar .log{margin-left:auto;color:var(--blue);}
+
+  /* 说明 */
+  .legend{width:1320px;margin-top:22px;background:#12151A;border:1px solid #23272E;border-radius:10px;padding:16px 20px;}
+  .legend h3{margin:0 0 10px;font-size:13px;color:#C9D1DB;font-weight:600;}
+  .legend h3 + h3{margin-top:18px;}
+  .legend ol{margin:0;padding-left:20px;color:#8A93A0;font-size:12px;line-height:2;}
+  .legend code{background:#1E232B;border:1px solid #2A2F38;border-radius:4px;padding:1px 5px;color:#A8B6C6;font-size:11px;}
+  .legend .k{color:#E6E8EC;}
+  .legend .q{color:#E6A23C;}
+  .legend .g{font-family:"Segoe MDL2 Assets";color:#A8B6C6;}
+</style>
+</head>
+<body>
+
+<div class="pagehint">
+  <button class="rst" id="resetBtn">重置记忆（清 localStorage）</button>
+  <b>主界面验收稿 v5</b> —— 以 v4 为基准：① 已移除预览顶端两个数字计时图标（v2/v3/v4 同步移除）；
+  ② 右侧栏改为<b>分组结构</b>，首组「替身计时」内收 <code>识别状态</code> / <code>置顶框设置</code> / <code>区域标注</code>；
+  ③ 新增「决斗场范围显示」组（在其下方）；④ 宽度 <code>250–550</code>；⑤ 新增<b>折叠成图标条</b>档位（58px）；
+  ⑥ 栏宽 / 折叠态 / 组展开态 / 图标选择均<b>写入记忆</b>（本地 <code>localStorage</code>，实机写入 <code>settings.json</code>）。
+</div>
+
+<div class="app">
+
+  <div class="titlebar">
+    <div class="logo">★</div>
+    <div class="title">替身计时器</div>
+    <div class="ver">NaruttoTimer v0.3 · AI 模式（值判定/空豆判定）</div>
+  </div>
+
+  <div class="toolbar">
+    <div class="tgroup">
+      <span class="dot"></span>
+      <span class="devname">雷电模拟器 emulator-5554</span>
+      <button class="btn">刷新设备</button>
+      <div class="combo w190"><span>emulator-5554</span><span class="car">▼</span></div>
+      <button class="btn">连接</button>
+      <button class="btn">开始识别</button>
+    </div>
+
+    <div class="vsep"></div>
+
+    <div class="tgroup">
+      <span class="swlabel">实时预览</span>
+      <div class="sw on" data-sw><i></i></div>
+      <span class="swlabel" style="margin-left:8px;">判定方式</span>
+      <div class="combo w110"><span>空豆判定</span><span class="car">▼</span></div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- 预览 -->
+    <div class="preview">
+      <div class="video"></div>
+
+      <div class="barstrip">
+        <div class="roi left" style="left:8.03%;top:44px;width:13.44%;height:96px;">
+          <span class="tag">左 空豆 0（值 6）</span>
+          <div class="dotm" style="left:4%;top:18%;width:20%;height:34%;"></div>
+          <div class="dotm" style="left:27%;top:18%;width:20%;height:34%;"></div>
+          <div class="dotm" style="left:50%;top:18%;width:20%;height:34%;"></div>
+          <div class="dotm" style="left:73%;top:18%;width:20%;height:34%;"></div>
+        </div>
+        <div class="roi right" style="left:77.16%;top:44px;width:13.44%;height:96px;">
+          <span class="tag">右 空豆 4（值 2）</span>
+          <div class="dotm" style="left:3%;top:18%;width:13%;height:34%;"></div>
+          <div class="dotm" style="left:19%;top:18%;width:13%;height:34%;"></div>
+          <div class="dotm" style="left:35%;top:18%;width:13%;height:34%;"></div>
+          <div class="dotm" style="left:51%;top:18%;width:13%;height:34%;"></div>
+        </div>
+      </div>
+
+      <div class="ph">实时预览 · 顶部条带顶对齐　（拖动右侧栏左边界可改宽度 250–550，双击复位 400）</div>
+    </div>
+
+    <!-- 右侧选项栏 -->
+    <aside class="side" id="side">
+
+      <div class="side-scroll" id="sideScroll">
+
+        <!-- ══ 组① 替身计时（默认展开） ══ -->
+        <section class="group open" data-group="timer" data-default="open">
+          <button class="group-head"><span class="chev"></span><span class="gtitle">替身计时</span></button>
+          <div class="group-items">
+
+            <!-- 条目：识别状态 -->
+            <div class="item">
+              <div class="item-head on"><span class="ic glyph">&#xE946;</span><span class="label">识别状态</span></div>
+              <div class="item-body">
+                <div class="kv">左　空豆 <b>0</b>　值 <b>6</b> <span class="sep">|</span> 倒计时 <b>3.21</b></div>
+                <div class="kv">右　空豆 <b>4</b>　值 <b>2</b> <span class="sep">|</span> 倒计时 <b>0.00</b></div>
+                <div class="kv" style="color:#6B7480;">稳定 3 帧 · 推理 8.0/s · 置信 0.86</div>
+              </div>
+            </div>
+
+            <!-- 条目：置顶框设置 -->
+            <div class="item">
+              <div class="item-head"><span class="ic glyph">&#xE718;</span><span class="label">置顶框设置</span></div>
+              <div class="item-body">
+                <div class="row">
+                  <span class="lbl">位置锁定</span>
+                  <div class="sw" data-sw><i></i></div>
+                  <span class="lbl">未锁定</span>
+                </div>
+                <div class="row">
+                  <span class="lbl">背景透明度</span>
+                  <div class="slider"><i style="left:55%;"></i></div>
+                  <span class="val">55%</span>
+                </div>
+                <div class="row">
+                  <span class="lbl">数字透明度</span>
+                  <div class="slider"><i style="left:100%;"></i></div>
+                  <span class="val">100%</span>
+                </div>
+                <div class="note">背景 / 数字透明度互相独立；显示格式 <b>0.00　0.00</b>（无括号）。</div>
+              </div>
+            </div>
+
+            <!-- 条目：区域标注 -->
+            <div class="item">
+              <div class="item-head"><span class="ic glyph">&#xE71E;</span><span class="label">区域标注</span></div>
+              <div class="item-body">
+                <div class="kv">左　0.080, 0.048 → 0.215, 0.182</div>
+                <div class="kv">右　0.772, 0.048 → 0.906, 0.182</div>
+                <div class="note">左右强制同高同步宽；可在预览区直接拖拽 / 弹窗精确微调。</div>
+                <button class="actbtn"><span class="ic glyph">&#xE71E;</span><span>打开区域标注窗口</span></button>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+        <!-- ══ 组② 决斗场范围显示（默认折叠） ══ -->
+        <section class="group" data-group="arena" data-default="closed">
+          <button class="group-head"><span class="chev"></span><span class="gtitle">决斗场范围显示</span></button>
+          <div class="group-items">
+            <div class="item">
+              <div class="item-head"><span class="ic glyph">&#xE7B3;</span><span class="label">范围显示</span></div>
+              <div class="item-body">
+                <div class="row">
+                  <span class="lbl">显示范围线</span>
+                  <div class="sw" data-sw><i></i></div>
+                  <span class="lbl">关闭</span>
+                </div>
+                <div class="row">
+                  <span class="lbl">显示模式</span>
+                  <div class="combo" style="flex:1;max-width:150px;"><span>X 轴范围</span><span class="car">▼</span></div>
+                </div>
+                <div class="row">
+                  <span class="lbl">范围线透明度</span>
+                  <div class="slider"><i style="left:60%;"></i></div>
+                  <span class="val">60%</span>
+                </div>
+                <button class="actbtn"><span class="ic glyph">&#xE91B;</span><span>打开范围参考图</span></button>
+                <div class="note warn">※ 本组内容为<strong>占位</strong>：按旧工具（V4.8「范围显示 / 决斗场设置」）推演，请给出实际条目我再改。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ══ 组③ 调试（默认折叠） ══ -->
+        <section class="group" data-group="debug" data-default="closed">
+          <button class="group-head"><span class="chev"></span><span class="gtitle">调试</span></button>
+          <div class="group-items">
+            <div class="item">
+              <div class="item-head"><span class="ic glyph">&#xE91B;</span><span class="label">导出当前帧</span></div>
+            </div>
+            <div class="item">
+              <div class="item-head"><span class="ic glyph">&#xE74E;</span><span class="label">数据保存 / 导出</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ══ 组④ 折叠图标候选（默认折叠 · 验收用） ══ -->
+        <section class="group" data-group="icons" data-default="closed">
+          <button class="group-head"><span class="chev"></span><span class="gtitle">折叠图标候选</span><span class="badge">验收用</span></button>
+          <div class="group-items">
+            <div class="item">
+              <div class="item-body" style="padding-left:8px;">
+                <div class="ichint">先选一个<b>目标</b>，再点下方图标即可套用；选择会写入记忆。此组在实机优化时删除。</div>
+                <div class="targets" id="targets"></div>
+                <div class="icon-grid" id="iconGrid"></div>
+                <div class="railpreview">
+                  <div class="box" id="railPreview"></div>
+                  <div class="ichint" style="align-self:center;">← 折叠态实际效果<br>58px 图标条（悬停显示名称）</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <!-- 栏底固定：设置 + 折叠 -->
+      <div class="side-pinned">
+        <button class="pinned"><span class="ic glyph">&#xE713;</span><span>设置</span></button>
+        <button class="railbtn glyph" id="collapseBtn" title="折叠为图标条">&#xE76B;</button>
+      </div>
+
+      <!-- 折叠态：图标条 -->
+      <div class="side-rail" id="sideRail">
+        <button class="rail-item glyph" data-rail="timer" title="替身计时">&#xE823;</button>
+        <button class="rail-item glyph" data-rail="arena" title="决斗场范围显示">&#xE7B3;</button>
+        <button class="rail-item glyph" data-rail="debug" title="调试">&#xE90F;</button>
+        <div class="rail-sep"></div>
+        <div class="rail-spacer"></div>
+        <button class="rail-item glyph" title="设置">&#xE713;</button>
+        <button class="rail-item glyph" id="expandBtn" title="展开选项栏">&#xE76C;</button>
+      </div>
+
+      <div class="side-resizer" id="sideResizer" title="拖动改变右侧栏宽度（双击恢复默认）"></div>
+    </aside>
+
+  </div>
+
+  <div class="statusbar">
+    <span>● 识别运行中</span>
+    <span>FPS 30</span>
+    <span>推理 8.0/s</span>
+    <span>视频流 1280×720</span>
+    <span class="log">日志：右值 2→1 触发，置顶框=14.50</span>
+  </div>
+</div>
+
+<div class="legend">
+  <h3>本次改动</h3>
+  <ol>
+    <li><span class="k">移除预览顶端计时图标</span>：v2 / v3 / v4 中的 <code>overlayframe</code>（左右两个数字）与样式一并删除。</li>
+    <li><span class="k">右侧栏改分组</span>：组头（灰字 + 三角，可点开合）→ 组内条目（图标 + 名称 + 内容），格式对齐参考稿的「学习事务 / 今日计划 / 课程与作业」。</li>
+    <li><span class="k">组①「替身计时」</span>：内含 <span class="g">&#xE946;</span> 识别状态、<span class="g">&#xE718;</span> 置顶框设置、<span class="g">&#xE71E;</span> 区域标注，<b>默认全展开</b>。</li>
+    <li><span class="k">组②「决斗场范围显示」</span>：位于「替身计时」下方，默认折叠（内容待你确认）。</li>
+    <li><span class="k">组③「调试」</span> / <span class="k">组④「折叠图标候选」</span>：均默认折叠。</li>
+    <li><span class="k">宽度 250–550</span>：拖左边界调宽，双击复位 400。</li>
+    <li><span class="k">折叠成图标条</span>：栏底 <span class="g">&#xE76B;</span> 收起为 58px 图标条（替身计时 / 决斗场范围显示 / 调试 / 设置），<span class="g">&#xE76C;</span> 展开。</li>
+    <li><span class="k">写入记忆</span>：栏宽、折叠态、各分组开合、图标选择存 <code>localStorage</code>；实机对写 <code>settings.json</code>。</li>
+  </ol>
+
+  <h3>待你确认</h3>
+  <ol>
+    <li><span class="q">「决斗场范围显示」组里到底放什么？</span> 我只按旧工具推演了占位条目（显示范围线 / 显示模式 / 透明度 / 参考图），请给实际清单。</li>
+    <li><span class="q">折叠态触发方式</span>：现在是「栏底按钮 + 58px」。要不要改成拖到 250 再继续拖自动收成图标条？</li>
+    <li><span class="q">图标候选够不够</span>：现给 20 个（Segoe MDL2）。可指定风格（线框 / 填充 / 彩色 emoji）我换一批。</li>
+    <li><span class="q">组内条目顺序</span>：识别状态 → 置顶框设置 → 区域标注，确认？</li>
+    <li><span class="q">组头是否显示图标</span>：现在组头只有三角 + 文字（照参考稿）；要不要像条目那样带一个图标？</li>
+  </ol>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var LS = {
+    get:function(k,d){ try{ var v=localStorage.getItem(k); return v===null?d:JSON.parse(v); }catch(e){ return d; } },
+    set:function(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} },
+    clear:function(){ try{ localStorage.removeItem('nt.side.w'); localStorage.removeItem('nt.side.collapsed');
+      localStorage.removeItem('nt.groups'); localStorage.removeItem('nt.icons'); }catch(e){} }
+  };
+
+  /* 折叠图标候选（Segoe MDL2 Assets 字形） */
+  var CANDIDATES = [
+    {cp:'\uE823', n:'时钟'},   {cp:'\uE81C', n:'历史'},   {cp:'\uE7B3', n:'眼睛'},
+    {cp:'\uE721', n:'搜索'},   {cp:'\uE713', n:'齿轮'},   {cp:'\uE718', n:'图钉'},
+    {cp:'\uE7C1', n:'旗标'},   {cp:'\uE7C3', n:'文档'},   {cp:'\uE946', n:'信息'},
+    {cp:'\uE8F1', n:'库'},     {cp:'\uE91B', n:'图片'},   {cp:'\uE734', n:'星标'},
+    {cp:'\uE71E', n:'放大'},   {cp:'\uE74D', n:'删除'},   {cp:'\uE74E', n:'保存'},
+    {cp:'\uE896', n:'下载'},   {cp:'\uE72E', n:'锁定'},   {cp:'\uE8C8', n:'复制'},
+    {cp:'\uE710', n:'新增'},   {cp:'\uE72C', n:'刷新'},   {cp:'\uE90F', n:'扳手'},
+    {cp:'\uE9E9', n:'调节'}
+  ];
+  var TARGETS = [
+    {key:'timer',    n:'替身计时'},
+    {key:'arena',    n:'决斗场范围显示'},
+    {key:'debug',    n:'调试'},
+    {key:'settings', n:'设置'}
+  ];
+  var DEFAULTS = { timer:'\uE823', arena:'\uE7B3', debug:'\uE90F', settings:'\uE713' };
+
+  var state = {
+    w: LS.get('nt.side.w', 400),
+    collapsed: LS.get('nt.side.collapsed', false),
+    groups: LS.get('nt.groups', null),
+    icons: LS.get('nt.icons', null)
+  };
+  if(!state.icons || typeof state.icons !== 'object'){ state.icons = {}; }
+  TARGETS.forEach(function(t){ if(!state.icons[t.key]) state.icons[t.key] = DEFAULTS[t.key]; });
+
+  var SIDE_MIN = 250, SIDE_MAX = 550, SIDE_DEFAULT = 400;
+  var side = document.getElementById('side');
+  var resizer = document.getElementById('sideResizer');
+  var rail = document.getElementById('sideRail');
+  var targetsBox = document.getElementById('targets');
+  var grid = document.getElementById('iconGrid');
+  var railPreview = document.getElementById('railPreview');
+  var selectedTarget = 'timer';
+
+  /* ── 宽度 ── */
+  function setWidth(w){
+    w = Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, w)));
+    side.style.width = w + 'px';
+    side.style.flexBasis = w + 'px';
+    state.w = w;
+  }
+  if(resizer && side){
+    resizer.addEventListener('mousedown', function(e){
+      e.preventDefault();
+      var startX = e.clientX, startW = side.getBoundingClientRect().width;
+      side.classList.add('resizing');
+      document.body.classList.add('resizing');
+      function onMove(ev){
+        setWidth(startW - (ev.clientX - startX));
+      }
+      function onUp(){
+        side.classList.remove('resizing');
+        document.body.classList.remove('resizing');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        LS.set('nt.side.w', state.w);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    resizer.addEventListener('dblclick', function(){
+      setWidth(SIDE_DEFAULT);
+      LS.set('nt.side.w', state.w);
+    });
+  }
+
+  /* ── 折叠成图标条 ── */
+  function setCollapsed(on, save){
+    state.collapsed = !!on;
+    side.classList.toggle('collapsed', state.collapsed);
+    if(!state.collapsed){ setWidth(state.w); }
+    if(save) LS.set('nt.side.collapsed', state.collapsed);
+  }
+  document.getElementById('collapseBtn').addEventListener('click', function(){ setCollapsed(true, true); });
+  document.getElementById('expandBtn').addEventListener('click', function(){ setCollapsed(false, true); });
+
+  /* ── 分组开合 ── */
+  var groups = Array.prototype.slice.call(document.querySelectorAll('[data-group]'));
+  function groupState(){
+    var m = {};
+    groups.forEach(function(g){
+      m[g.dataset.group] = g.classList.contains('open') ? 'open' : 'closed';
+    });
+    return m;
+  }
+  function applyGroups(st){
+    groups.forEach(function(g){
+      var key = g.dataset.group;
+      var open = (st && st[key]) ? (st[key] === 'open') : (g.dataset.default === 'open');
+      g.classList.toggle('open', open);
+    });
+  }
+  groups.forEach(function(g){
+    g.querySelector('.group-head').addEventListener('click', function(){
+      g.classList.toggle('open');
+      LS.set('nt.groups', groupState());
+    });
+  });
+  applyGroups(state.groups);
+
+  /* 图标条：点组图标 = 展开该组 */
+  Array.prototype.slice.call(document.querySelectorAll('[data-rail]')).forEach(function(b){
+    b.addEventListener('click', function(){
+      var key = b.dataset.rail;
+      applyGroups((function(){ var m = {}; m[key] = 'open'; return m; })());
+      groups.forEach(function(g){ if(g.dataset.group !== key) g.classList.remove('open'); });
+      LS.set('nt.groups', groupState());
+      setCollapsed(false, true);
+      var el = groups.filter(function(g){ return g.dataset.group === key; })[0];
+      if(el && el.scrollIntoView) el.scrollIntoView({block:'nearest'});
+    });
+  });
+
+  /* ── 图标候选 ── */
+  function iconOf(key){ return state.icons[key] || DEFAULTS[key]; }
+  function nameOfCp(cp){
+    for(var i=0;i<CANDIDATES.length;i++){ if(CANDIDATES[i].cp === cp) return CANDIDATES[i].n; }
+    return '默认';
+  }
+  function renderTargets(){
+    targetsBox.innerHTML = '';
+    TARGETS.forEach(function(t){
+      var b = document.createElement('button');
+      b.className = 'chip' + (t.key === selectedTarget ? ' sel' : '');
+      b.innerHTML = '<span class="g glyph">' + iconOf(t.key) + '</span><span>' + t.n + '</span>';
+      b.addEventListener('click', function(){ selectedTarget = t.key; renderTargets(); renderGrid(); });
+      targetsBox.appendChild(b);
+    });
+  }
+  function renderGrid(){
+    grid.innerHTML = '';
+    CANDIDATES.forEach(function(c){
+      var b = document.createElement('button');
+      b.className = 'icon-cell' + (iconOf(selectedTarget) === c.cp ? ' sel' : '');
+      b.innerHTML = '<span class="g glyph">' + c.cp + '</span><span class="n">' + c.n + '</span>';
+      b.title = c.n + '  (U+' + c.cp.charCodeAt(0).toString(16).toUpperCase() + ')';
+      b.addEventListener('click', function(){
+        state.icons[selectedTarget] = c.cp;
+        LS.set('nt.icons', state.icons);
+        renderAll();
+      });
+      grid.appendChild(b);
+    });
+  }
+  function renderRailIcons(){
+    Array.prototype.slice.call(document.querySelectorAll('[data-rail]')).forEach(function(b){
+      var key = b.dataset.rail;
+      b.innerHTML = iconOf(key);
+      b.title = (TARGETS.filter(function(t){ return t.key === key; })[0] || {}).n || key;
+    });
+    railPreview.innerHTML = '';
+    ['timer','arena','debug'].forEach(function(k){
+      var d = document.createElement('div');
+      d.className = 'g glyph';
+      d.innerHTML = iconOf(k);
+      railPreview.appendChild(d);
+    });
+    var s = document.createElement('div');
+    s.className = 'g glyph';
+    s.innerHTML = iconOf('settings');
+    railPreview.appendChild(s);
+  }
+  function renderAll(){ renderTargets(); renderGrid(); renderRailIcons(); }
+
+  /* ── 开关 ── */
+  Array.prototype.slice.call(document.querySelectorAll('[data-sw]')).forEach(function(s){
+    s.addEventListener('click', function(){ s.classList.toggle('on'); });
+  });
+
+  /* ── 重置记忆 ── */
+  document.getElementById('resetBtn').addEventListener('click', function(){
+    LS.clear();
+    state.w = SIDE_DEFAULT; state.collapsed = false; state.groups = null; state.icons = null;
+    state.icons = {};
+    TARGETS.forEach(function(t){ state.icons[t.key] = DEFAULTS[t.key]; });
+    selectedTarget = 'timer';
+    setCollapsed(false, false);
+    setWidth(SIDE_DEFAULT);
+    applyGroups(null);
+    renderAll();
+  });
+
+  /* ── 初始化 ── */
+  setWidth(state.w);
+  setCollapsed(state.collapsed, false);
+  renderAll();
+})();
+</script>
+</body>
+</html>

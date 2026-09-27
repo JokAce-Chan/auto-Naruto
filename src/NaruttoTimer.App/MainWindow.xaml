@@ -24,7 +24,7 @@
             </DockPanel>
         </Border>
 
-        <!-- 工具栏 -->
+        <!-- 工具栏：只剩「设备组」+「实时预览 / 判定方式」两组 -->
         <Border Grid.Row="1" Background="#16191E" BorderBrush="#2A2F38" BorderThickness="0,0,0,1" Padding="14,8">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -47,23 +47,19 @@
                         <ToggleButton x:Name="PreviewToggle" Width="34" Height="18" IsChecked="True" Click="PreviewToggle_Click"/>
                     </StackPanel>
                     <TextBlock Text="判定方式" Foreground="#9AA3B0" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <ComboBox x:Name="JudgementCombo" Width="110" Height="26" Margin="0,0,8,0" VerticalAlignment="Center"
+                    <ComboBox x:Name="JudgementCombo" Width="110" Height="26" VerticalAlignment="Center"
                               Background="#F2F4F7" Foreground="#000000" BorderBrush="#8A93A0"
                               ItemContainerStyle="{StaticResource LightComboItem}" IsEditable="False"
                               SelectionChanged="JudgementCombo_SelectionChanged"/>
-                    <Button Content="区域标注" Style="{StaticResource ToolbarButton}" Click="BtnLabelConfig_Click"/>
-                    <Button Content="导出帧" Style="{StaticResource ToolbarButton}" Click="BtnDumpFrame_Click"/>
-                    <Button Content="数据保存" Style="{StaticResource ToolbarButton}" Click="BtnData_Click"/>
-                    <Button Content="设置" Style="{StaticResource ToolbarButton}" Click="BtnSettings_Click"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- 主体：左预览 + 右控制面板 -->
+        <!-- 主体：左预览 + 右选项栏（主界面验收稿 v6） -->
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="400" MinWidth="400"/>
+                <ColumnDefinition x:Name="SideColumn" Width="300"/>
             </Grid.ColumnDefinitions>
 
             <!-- 预览区 -->
@@ -78,66 +74,348 @@
                 </Grid>
             </Border>
 
-            <!-- 控制面板 -->
-            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="0,14,14,14">
-                    <Border Style="{StaticResource Card}" Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource CardTitle}" Text="识别状态"/>
-                            <TextBlock x:Name="RecLeftText" Style="{StaticResource CardBody}" Text="左  值 -- · 倒计时 0.00"/>
-                            <TextBlock x:Name="RecRightText" Style="{StaticResource CardBody}" Text="右  值 -- · 倒计时 0.00"/>
-                        </StackPanel>
-                    </Border>
+            <!-- 右侧选项栏 -->
+            <Border x:Name="SidePanel" Grid.Column="1" Background="#14171C" BorderBrush="#2A2F38" BorderThickness="1,0,0,0">
+                <Grid>
+                    <!-- 拖宽热区（250–550，双击复位 300） -->
+                    <Rectangle x:Name="SideResizer" HorizontalAlignment="Left" Width="7" Fill="Transparent" Cursor="SizeWE"
+                               Panel.ZIndex="10" ToolTip="拖动改宽（250–550），双击复位 300"
+                               MouseLeftButtonDown="SideResizer_MouseLeftButtonDown"
+                               MouseMove="SideResizer_MouseMove"
+                               MouseLeftButtonUp="SideResizer_MouseLeftButtonUp"/>
 
-                    <Border Style="{StaticResource Card}" Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource CardTitle}" Text="置顶框设置"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                <TextBlock Style="{StaticResource CardBody}" Text="位置锁定"/>
-                                <ToggleButton x:Name="LockToggle" Width="34" Height="18" IsChecked="False" Margin="10,0,0,0" Click="LockToggle_Click"/>
-                                <TextBlock x:Name="LockValue" Style="{StaticResource CardBody}" Text="未锁定" Margin="10,0,0,0"/>
+                    <!-- ── 展开态 ── -->
+                    <Grid x:Name="SideExpanded">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,10,0,10">
+                            <StackPanel>
+
+                                <!-- ══ 组① 替身计时 ══ -->
+                                <Border Style="{StaticResource SideGroup}">
+                                    <StackPanel>
+                                        <ToggleButton x:Name="HeadTimer" Tag="timer" IsChecked="True" Click="GroupHead_Click" Style="{StaticResource SideGroupHeader}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock x:Name="GlyphGroupTimer" Style="{StaticResource SideGlyph}" Text="&#xE823;"/>
+                                                <TextBlock Text="替身计时" Style="{StaticResource SideTitle}"/>
+                                            </StackPanel>
+                                        </ToggleButton>
+                                        <StackPanel x:Name="BodyTimer">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsChecked, ElementName=HeadTimer}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+
+                                            <!-- 识别状态 -->
+                                            <Border Background="#1D2A40" CornerRadius="6" Margin="6,1,6,1" Padding="8,6,8,6">
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock x:Name="GlyphItemStatus" Style="{StaticResource SideGlyph}" Text="&#xE946;" Foreground="#7EA6DC"/>
+                                                        <TextBlock Text="识别状态" Style="{StaticResource SideItemLabel}" Foreground="#CFE0F6"/>
+                                                    </StackPanel>
+                                                    <StackPanel Margin="26,4,0,0">
+                                                        <TextBlock x:Name="RecLeftText" Style="{StaticResource CardBody}" Margin="0" Text="左  值 -- · 倒计时 0.00"/>
+                                                        <TextBlock x:Name="RecRightText" Style="{StaticResource CardBody}" Text="右  值 -- · 倒计时 0.00"/>
+                                                        <TextBlock x:Name="RecMetaText" Style="{StaticResource CardBody}" Foreground="#6B7480" Text="稳定 -- · 推理 -- · 置信 --"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- 置顶框设置 -->
+                                            <Border Style="{StaticResource SideItem}">
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock x:Name="GlyphItemPin" Style="{StaticResource SideGlyph}" Text="&#xE718;"/>
+                                                        <TextBlock Text="置顶框设置" Style="{StaticResource SideItemLabel}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Margin="26,4,0,0">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="位置锁定"/>
+                                                            <ToggleButton x:Name="LockToggle" Width="34" Height="18" IsChecked="False" Margin="10,0,0,0" Click="LockToggle_Click"/>
+                                                            <TextBlock x:Name="LockValue" Style="{StaticResource CardBody}" Text="未锁定" Margin="10,0,0,0"/>
+                                                        </StackPanel>
+                                                        <Grid Margin="0,8,0,0">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBody}" Margin="0" Text="背景透明度"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="OpacityValue" Style="{StaticResource CardBody}" Margin="0" Foreground="#C9D1DB" Text="55%"/>
+                                                            <Slider Grid.Row="1" Grid.ColumnSpan="2" x:Name="OpacitySlider" Minimum="10" Maximum="90" Value="55" Margin="0,4,0,0" VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                        <Grid Margin="0,8,0,0">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBody}" Margin="0" Text="数字透明度"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="TextOpacityValue" Style="{StaticResource CardBody}" Margin="0" Foreground="#C9D1DB" Text="100%"/>
+                                                            <Slider Grid.Row="1" Grid.ColumnSpan="2" x:Name="TextOpacitySlider" Minimum="0" Maximum="100" Value="100" Margin="0,4,0,0" VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                        <TextBlock Style="{StaticResource CardBody}" Text="背景与数字透明度独立设置；显示格式：0.00  0.00（无括号 · 随框缩放）" Margin="0,8,0,0"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- 区域标注 -->
+                                            <Border Style="{StaticResource SideItem}">
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock x:Name="GlyphItemRoi" Style="{StaticResource SideGlyph}" Text="&#xE71E;"/>
+                                                        <TextBlock Text="区域标注" Style="{StaticResource SideItemLabel}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Margin="26,4,0,0">
+                                                        <TextBlock x:Name="LabelText" Style="{StaticResource CardBody}" Margin="0" Text="左能量条：--"/>
+                                                        <TextBlock Style="{StaticResource CardBody}" Text="左右能量条强制同高同步宽（AI 模式垂直拼接推理）；可在预览区直接拖拽调整。"/>
+                                                        <Button Style="{StaticResource WideActionButton}" Click="BtnLabelConfig_Click">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock x:Name="GlyphItemRoi2" Style="{StaticResource SideGlyph}" Text="&#xE71E;"/>
+                                                                <TextBlock Text="打开区域标注窗口" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </Button>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- 识别与参数 -->
+                                            <Border Style="{StaticResource SideItem}">
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock x:Name="GlyphItemParams" Style="{StaticResource SideGlyph}" Text="&#xE713;"/>
+                                                        <TextBlock Text="识别与参数" Style="{StaticResource SideItemLabel}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Margin="26,4,0,0">
+                                                        <TextBlock x:Name="ModeText" Style="{StaticResource CardBody}" Margin="0" Text="判定方式：--"/>
+                                                        <TextBlock x:Name="ParamText" Style="{StaticResource CardBody}" Text="参数：--"/>
+                                                        <TextBlock x:Name="ModelText" Style="{StaticResource CardBody}" Text="模型：--"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- 触发规则说明 -->
+                                            <Border Style="{StaticResource SideItem}" Margin="6,1,6,6">
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock x:Name="GlyphItemRules" Style="{StaticResource SideGlyph}" Text="&#xE7C3;"/>
+                                                        <TextBlock Text="触发规则说明" Style="{StaticResource SideItemLabel}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Margin="26,4,0,0">
+                                                        <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="值 = 6 − 空豆数（AI 模型）；连续 3 帧稳定后才参与判定；值判定看「值恰好减 1」，空豆判定看「空豆恰好加 1」。"/>
+                                                        <TextBlock Style="{StaticResource CardBody}" Text="稳定值恰好「减 1」→ 视为使用替身/技能，该侧倒计时重置为 14.5s。"/>
+                                                        <TextBlock Style="{StaticResource CardBody}" Text="每帧都参与判定；倒计时归零后保持 0.00。"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- ══ 组② 决斗场范围显示（占位） ══ -->
+                                <Border Style="{StaticResource SideGroup}">
+                                    <StackPanel>
+                                        <ToggleButton x:Name="HeadArena" Tag="arena" Click="GroupHead_Click" Style="{StaticResource SideGroupHeader}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock x:Name="GlyphGroupArena" Style="{StaticResource SideGlyph}" Text="&#xE7B3;"/>
+                                                <TextBlock Text="决斗场范围显示" Style="{StaticResource SideTitle}"/>
+                                            </StackPanel>
+                                        </ToggleButton>
+                                        <StackPanel x:Name="BodyArena">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsChecked, ElementName=HeadArena}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+
+                                            <Border Style="{StaticResource SideItem}" Margin="6,1,6,6">
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock x:Name="GlyphItemScope" Style="{StaticResource SideGlyph}" Text="&#xE7B3;"/>
+                                                        <TextBlock Text="范围显示" Style="{StaticResource SideItemLabel}"/>
+                                                    </StackPanel>
+                                                    <StackPanel Margin="26,4,0,0" IsEnabled="False" Opacity="0.5">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="显示范围线"/>
+                                                            <ToggleButton Width="34" Height="18" Margin="10,0,0,0"/>
+                                                            <TextBlock Style="{StaticResource CardBody}" Text="关闭" Margin="10,0,0,0"/>
+                                                        </StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="显示模式"/>
+                                                            <ComboBox Width="110" Height="24" Margin="10,0,0,0" VerticalAlignment="Center"
+                                                                      Background="#F2F4F7" Foreground="#000000" BorderBrush="#8A93A0"
+                                                                      ItemContainerStyle="{StaticResource LightComboItem}" SelectedIndex="0">
+                                                                <ComboBoxItem>X 轴范围</ComboBoxItem>
+                                                                <ComboBoxItem>Y 轴范围</ComboBoxItem>
+                                                            </ComboBox>
+                                                        </StackPanel>
+                                                        <Grid Margin="0,8,0,0">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBody}" Margin="0" Text="范围线透明度"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="1" Style="{StaticResource CardBody}" Margin="0" Foreground="#C9D1DB" Text="60%"/>
+                                                            <Slider Grid.Row="1" Grid.ColumnSpan="2" Minimum="0" Maximum="100" Value="60" Margin="0,4,0,0" VerticalAlignment="Center"/>
+                                                        </Grid>
+                                                        <Button Style="{StaticResource WideActionButton}" IsEnabled="False">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Style="{StaticResource SideGlyph}" Text="&#xE91B;"/>
+                                                                <TextBlock Text="打开范围参考图" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </Button>
+                                                    </StackPanel>
+                                                    <TextBlock Style="{StaticResource CardBody}" Foreground="#8A6D3B" Margin="26,8,0,0"
+                                                               Text="※ 本组内容保持占位，待你给出实际条目后再接入，控件暂不可用。"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- ══ 组③ 调试 ══ -->
+                                <Border Style="{StaticResource SideGroup}">
+                                    <StackPanel>
+                                        <ToggleButton x:Name="HeadDebug" Tag="debug" Click="GroupHead_Click" Style="{StaticResource SideGroupHeader}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock x:Name="GlyphGroupDebug" Style="{StaticResource SideGlyph}" Text="&#xE90F;"/>
+                                                <TextBlock Text="调试" Style="{StaticResource SideTitle}"/>
+                                            </StackPanel>
+                                        </ToggleButton>
+                                        <StackPanel x:Name="BodyDebug">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsChecked, ElementName=HeadDebug}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+
+                                            <Button Style="{StaticResource SideItemButton}" Click="BtnDumpFrame_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock x:Name="GlyphItemFrame" Style="{StaticResource SideGlyph}" Text="&#xE91B;"/>
+                                                    <TextBlock Text="导出当前帧" Style="{StaticResource SideItemLabel}"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Style="{StaticResource SideItemButton}" Margin="0,0,0,4" Click="BtnData_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock x:Name="GlyphItemData" Style="{StaticResource SideGlyph}" Text="&#xE74E;"/>
+                                                    <TextBlock Text="数据保存 / 导出" Style="{StaticResource SideItemLabel}"/>
+                                                </StackPanel>
+                                            </Button>
+
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- ══ 组④ 图标设置 ══ -->
+                                <Border Style="{StaticResource SideGroup}">
+                                    <StackPanel>
+                                        <ToggleButton x:Name="HeadIcons" Tag="icons" Click="GroupHead_Click" Style="{StaticResource SideGroupHeader}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock x:Name="GlyphGroupIcons" Style="{StaticResource SideGlyph}" Text="&#xE9E9;"/>
+                                                <TextBlock Text="图标设置" Style="{StaticResource SideTitle}"/>
+                                            </StackPanel>
+                                        </ToggleButton>
+                                        <StackPanel x:Name="BodyIcons">
+                                            <StackPanel.Style>
+                                                <Style TargetType="StackPanel">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsChecked, ElementName=HeadIcons}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </StackPanel.Style>
+
+                                            <TextBlock Style="{StaticResource CardBody}" Margin="14,6,14,0"
+                                                       Text="先选目标（组头 / 组内条目），再点下方图标套用；选择写入记忆，重启保留。"/>
+                                            <TextBlock Style="{StaticResource CardBody}" Margin="14,6,14,0" Foreground="#6B7480" Text="组头"/>
+                                            <WrapPanel x:Name="IconTargetsHead" Margin="14,4,9,0"/>
+                                            <TextBlock Style="{StaticResource CardBody}" Margin="14,6,14,0" Foreground="#6B7480" Text="组内条目"/>
+                                            <WrapPanel x:Name="IconTargetsItem" Margin="14,4,9,0"/>
+                                            <WrapPanel x:Name="IconPalette" Margin="14,10,9,12"/>
+
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                <TextBlock Style="{StaticResource CardBody}" Text="背景透明度"/>
-                                <Slider x:Name="OpacitySlider" Minimum="10" Maximum="90" Value="55" Width="140" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                                <TextBlock x:Name="OpacityValue" Style="{StaticResource CardBody}" Text="55%" Margin="10,0,0,0"/>
+                        </ScrollViewer>
+
+                        <!-- 栏底固定：设置 + 折叠 -->
+                        <Border Grid.Row="1" Background="#14171C" BorderBrush="#2A2F38" BorderThickness="0,1,0,0" Padding="8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="BtnSettingsPinned" Grid.Column="0" Style="{StaticResource PinnedButton}" Click="BtnSettings_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock x:Name="GlyphPinnedSettings" Style="{StaticResource SideGlyph}" Text="&#xE713;"/>
+                                        <TextBlock Text="设置" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="BtnCollapseSide" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource SquareIconButton}"
+                                        Content="&#xE76B;" Click="BtnCollapseSide_Click" ToolTip="折叠为图标条（58px）"/>
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <!-- ── 折叠态：图标条 ── -->
+                    <Grid x:Name="SideRail" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Grid.Row="0" Margin="0,10,0,0">
+                            <Button x:Name="RailTimer" Style="{StaticResource RailIconButton}" Content="&#xE823;" Tag="timer" Click="RailButton_Click" ToolTip="替身计时" HorizontalAlignment="Center"/>
+                            <Button x:Name="RailArena" Style="{StaticResource RailIconButton}" Content="&#xE7B3;" Tag="arena" Click="RailButton_Click" ToolTip="决斗场范围显示" HorizontalAlignment="Center"/>
+                            <Button x:Name="RailDebug" Style="{StaticResource RailIconButton}" Content="&#xE90F;" Tag="debug" Click="RailButton_Click" ToolTip="调试" HorizontalAlignment="Center"/>
+                            <Button x:Name="RailIcons" Style="{StaticResource RailIconButton}" Content="&#xE9E9;" Tag="icons" Click="RailButton_Click" ToolTip="图标设置" HorizontalAlignment="Center"/>
+                        </StackPanel>
+
+                        <Border Grid.Row="2" BorderBrush="#2A2F38" BorderThickness="0,1,0,0" Padding="0,6,0,8">
+                            <StackPanel>
+                                <Button x:Name="RailSettings" Style="{StaticResource RailIconButton}" Content="&#xE713;" Click="BtnSettings_Click" ToolTip="设置" HorizontalAlignment="Center"/>
+                                <Button x:Name="BtnExpandSide" Style="{StaticResource RailIconButton}" Content="&#xE76C;" Click="BtnExpandSide_Click" ToolTip="展开选项栏" HorizontalAlignment="Center"/>
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                <TextBlock Style="{StaticResource CardBody}" Text="数字透明度"/>
-                                <Slider x:Name="TextOpacitySlider" Minimum="0" Maximum="100" Value="100" Width="140" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                                <TextBlock x:Name="TextOpacityValue" Style="{StaticResource CardBody}" Text="100%" Margin="10,0,0,0"/>
-                            </StackPanel>
-                            <TextBlock Style="{StaticResource CardBody}" Text="背景与数字透明度独立设置；显示格式：0.00  0.00（无括号 · 随框缩放）" Margin="0,10,0,0"/>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Style="{StaticResource Card}" Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource CardTitle}" Text="识别与参数"/>
-                            <TextBlock x:Name="ModeText" Style="{StaticResource CardBody}" Text="判定方式：--"/>
-                            <TextBlock x:Name="ParamText" Style="{StaticResource CardBody}" Text="参数：--"/>
-                            <TextBlock x:Name="ModelText" Style="{StaticResource CardBody}" Text="模型：--"/>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Style="{StaticResource Card}" Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource CardTitle}" Text="区域标注"/>
-                            <TextBlock x:Name="LabelText" Style="{StaticResource CardBody}" Text="左能量条：--"/>
-                            <TextBlock Style="{StaticResource CardBody}" Text="左右能量条强制同高同步宽（AI 模式垂直拼接推理）；可在预览区直接拖拽调整。"/>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Style="{StaticResource Card}">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource CardTitle}" Text="触发规则说明"/>
-                            <TextBlock Style="{StaticResource CardBody}" Text="值 = 6 − 空豆数（AI 模型）；连续 3 帧稳定后才参与判定；值判定看「值恰好减 1」，空豆判定看「空豆恰好加 1」。"/>
-                            <TextBlock Style="{StaticResource CardBody}" Text="稳定值恰好「减 1」→ 视为使用替身/技能，该侧倒计时重置为 14.5s。"/>
-                            <TextBlock Style="{StaticResource CardBody}" Text="每帧都参与判定；倒计时归零后保持 0.00。"/>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </ScrollViewer>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Border>
         </Grid>
 
         <!-- 状态栏 -->

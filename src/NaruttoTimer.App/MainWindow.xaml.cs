@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -64,6 +65,24 @@ public partial class MainWindow : Window
     private DateTime _inferenceWindowStart = DateTime.UtcNow;
     private double _inferenceFps;
 
+    // ── 右侧选项栏（主界面验收稿 v6：分组 / 拖宽 / 折叠 / 图标设置）──
+    private const int SideMinWidth = 250;
+    private const int SideMaxWidth = 550;
+    private const int SideDefaultWidth = 300;
+    private const int SideRailWidth = 58;
+    private static readonly FontFamily IconFont = new("Segoe MDL2 Assets");
+    private static readonly Brush ChipBg = Brush("#1F242C");
+    private static readonly Brush ChipBorder = Brush("#2A2F38");
+    private static readonly Brush ChipFg = Brush("#9AA3B0");
+    private static readonly Brush ChipSelBg = Brush("#1D2A40");
+    private static readonly Brush ChipSelBorder = Brush("#2E6FD0");
+    private static readonly Brush ChipSelFg = Brush("#DDE2EA");
+    private readonly Dictionary<string, ToggleButton> _groupHeads = new();
+    private string _iconTargetKey = UiIcons.GroupTimer;
+    private bool _sideResizing;
+    private double _sideResizeStartX;
+    private double _sideResizeStartWidth;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -85,6 +104,7 @@ public partial class MainWindow : Window
 
         BuildCore();
         ApplySettingsToUi();
+        ApplyUiLayout();
 
         OpacitySlider.ValueChanged += (_, _) =>
         {
@@ -186,7 +206,245 @@ public partial class MainWindow : Window
             $"右能量条：{_settings.Label.EnergyBar.Right}";
     }
 
+    // ── 右侧选项栏：分组 / 拖宽 / 折叠 / 图标设置 ──
+
+    /// <summary>应用右侧栏的全部记忆项（分组开合、折叠态、图标选择）。</summary>
+    private void ApplyUiLayout()
+    {
+        ApplySidePanelState();
+        ApplyUiIcons();
+        BuildIconSettings();
+    }
+
+    private void ApplySidePanelState()
+    {
+        _settings.SidePanelWidth = Math.Clamp(_settings.SidePanelWidth, SideMinWidth, SideMaxWidth);
+        _groupHeads.Clear();
+        _groupHeads[UiIcons.GroupTimerName] = HeadTimer;
+        _groupHeads[UiIcons.GroupArenaName] = HeadArena;
+        _groupHeads[UiIcons.GroupDebugName] = HeadDebug;
+        _groupHeads[UiIcons.GroupIconsName] = HeadIcons;
+
+        // 首次运行：仅「替身计时」展开，其余折叠
+        foreach (var (key, head) in _groupHeads)
+        {
+            bool open = _settings.GroupOpen.TryGetValue(key, out var saved) ? saved : key == UiIcons.GroupTimerName;
+            head.IsChecked = open;
+        }
+
+        ShowSideCollapsed(_settings.SidePanelCollapsed);
+        SideColumn.Width = new GridLength(_settings.SidePanelCollapsed ? SideRailWidth : _settings.SidePanelWidth);
+    }
+
+    private void ShowSideCollapsed(bool collapsed)
+    {
+        SideExpanded.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        SideRail.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void GroupHead_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton head || head.Tag is not string key) return;
+        _settings.GroupOpen[key] = head.IsChecked == true;
+        SaveUiMemory();
+    }
+
+    /// <summary>点图标条上的组图标：展开侧栏并只开这一组。</summary>
+    private void RailButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string key) return;
+        foreach (var (groupKey, head) in _groupHeads)
+        {
+            head.IsChecked = groupKey == key;
+            _settings.GroupOpen[groupKey] = head.IsChecked == true;
+        }
+        SetSideCollapsed(false);
+    }
+
+    private void BtnCollapseSide_Click(object sender, RoutedEventArgs e) => SetSideCollapsed(true);
+
+    private void BtnExpandSide_Click(object sender, RoutedEventArgs e) => SetSideCollapsed(false);
+
+    private void SetSideCollapsed(bool collapsed)
+    {
+        _settings.SidePanelCollapsed = collapsed;
+        ShowSideCollapsed(collapsed);
+        SideColumn.Width = new GridLength(collapsed ? SideRailWidth : _settings.SidePanelWidth);
+        SaveUiMemory();
+    }
+
+    // ── 栏宽拖拽（250–550，双击复位 300）──
+
+    private void SideResizer_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount >= 2)
+        {
+            _settings.SidePanelWidth = SideDefaultWidth;
+            SideColumn.Width = new GridLength(SideDefaultWidth);
+            SaveUiMemory();
+            return;
+        }
+        _sideResizing = true;
+        _sideResizeStartX = e.GetPosition(this).X;
+        _sideResizeStartWidth = SideColumn.ActualWidth;
+        SideResizer.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void SideResizer_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_sideResizing) return;
+        double delta = e.GetPosition(this).X - _sideResizeStartX;
+        double width = Math.Clamp(_sideResizeStartWidth - delta, SideMinWidth, SideMaxWidth);
+        SideColumn.Width = new GridLength(Math.Round(width));
+    }
+
+    private void SideResizer_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_sideResizing) return;
+        _sideResizing = false;
+        SideResizer.ReleaseMouseCapture();
+        _settings.SidePanelWidth = Math.Clamp((int)Math.Round(SideColumn.ActualWidth), SideMinWidth, SideMaxWidth);
+        SaveUiMemory();
+    }
+
+    // ── 图标设置 ──
+
+    private void ApplyUiIcons()
+    {
+        SetGlyph(GlyphGroupTimer, UiIcons.GroupTimer);
+        SetGlyph(GlyphGroupArena, UiIcons.GroupArena);
+        SetGlyph(GlyphGroupDebug, UiIcons.GroupDebug);
+        SetGlyph(GlyphGroupIcons, UiIcons.GroupIcons);
+        SetGlyph(GlyphPinnedSettings, UiIcons.PinnedSettings);
+        SetGlyph(GlyphItemStatus, UiIcons.ItemStatus);
+        SetGlyph(GlyphItemPin, UiIcons.ItemPin);
+        SetGlyph(GlyphItemRoi, UiIcons.ItemRoi);
+        SetGlyph(GlyphItemRoi2, UiIcons.ItemRoi);
+        SetGlyph(GlyphItemParams, UiIcons.ItemParams);
+        SetGlyph(GlyphItemRules, UiIcons.ItemRules);
+        SetGlyph(GlyphItemScope, UiIcons.ItemScope);
+        SetGlyph(GlyphItemFrame, UiIcons.ItemFrame);
+        SetGlyph(GlyphItemData, UiIcons.ItemData);
+
+        // 折叠条与组头共用同一字形
+        RailTimer.Content = UiIcons.Resolve(_settings.UiIcons, UiIcons.GroupTimer);
+        RailArena.Content = UiIcons.Resolve(_settings.UiIcons, UiIcons.GroupArena);
+        RailDebug.Content = UiIcons.Resolve(_settings.UiIcons, UiIcons.GroupDebug);
+        RailIcons.Content = UiIcons.Resolve(_settings.UiIcons, UiIcons.GroupIcons);
+        RailSettings.Content = UiIcons.Resolve(_settings.UiIcons, UiIcons.PinnedSettings);
+    }
+
+    private void SetGlyph(TextBlock target, string key) => target.Text = UiIcons.Resolve(_settings.UiIcons, key);
+
+    /// <summary>构建「图标设置」组：目标 chip（组头 / 组内条目）+ 候选字形网格。</summary>
+    private void BuildIconSettings()
+    {
+        IconTargetsHead.Children.Clear();
+        IconTargetsItem.Children.Clear();
+        IconPalette.Children.Clear();
+
+        foreach (var target in UiIcons.Targets)
+        {
+            var chip = new Button
+            {
+                Style = (Style)FindResource("IconChip"),
+                Tag = target.Key,
+                ToolTip = $"{target.Section}：{target.Name}",
+            };
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(new TextBlock
+            {
+                Text = UiIcons.Resolve(_settings.UiIcons, target.Key),
+                FontFamily = IconFont,
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            row.Children.Add(new TextBlock
+            {
+                Text = target.Name,
+                Margin = new Thickness(5, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            chip.Content = row;
+            chip.Click += IconTarget_Click;
+            (target.Section == UiIcons.SectionHead ? IconTargetsHead : IconTargetsItem).Children.Add(chip);
+        }
+
+        foreach (var candidate in UiIcons.Candidates)
+        {
+            var cell = new Button
+            {
+                Style = (Style)FindResource("IconCell"),
+                Tag = candidate.Glyph,
+                ToolTip = $"{candidate.Name}（U+{candidate.Glyph[0]:X4}）",
+            };
+            var column = new StackPanel();
+            column.Children.Add(new TextBlock
+            {
+                Text = candidate.Glyph,
+                FontFamily = IconFont,
+                FontSize = 16,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            });
+            column.Children.Add(new TextBlock
+            {
+                Text = candidate.Name,
+                FontSize = 9,
+                Foreground = Gray,
+                Margin = new Thickness(0, 3, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+            });
+            cell.Content = column;
+            cell.Click += IconPalette_Click;
+            IconPalette.Children.Add(cell);
+        }
+
+        RefreshIconSelection();
+    }
+
+    private void IconTarget_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button chip || chip.Tag is not string key) return;
+        _iconTargetKey = key;
+        RefreshIconSelection();
+    }
+    private void IconPalette_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button cell || cell.Tag is not string glyph) return;
+        _settings.UiIcons[_iconTargetKey] = glyph;
+        ApplyUiIcons();
+        SaveUiMemory();
+        RefreshIconSelection();
+    }
+
+    /// <summary>刷新「图标设置」的选中高亮与当前字形。</summary>
+    private void RefreshIconSelection()
+    {
+        foreach (var chip in IconTargetsHead.Children.OfType<Button>().Concat(IconTargetsItem.Children.OfType<Button>()))
+        {
+            if (chip.Tag is not string key) continue;
+            bool selected = key == _iconTargetKey;
+            chip.Background = selected ? ChipSelBg : ChipBg;
+            chip.BorderBrush = selected ? ChipSelBorder : ChipBorder;
+            chip.Foreground = selected ? ChipSelFg : ChipFg;
+            if (chip.Content is StackPanel row && row.Children.Count > 0 && row.Children[0] is TextBlock glyphText)
+                glyphText.Text = UiIcons.Resolve(_settings.UiIcons, key);
+        }
+
+        string current = UiIcons.Resolve(_settings.UiIcons, _iconTargetKey);
+        foreach (var cell in IconPalette.Children.OfType<Button>())
+        {
+            bool selected = cell.Tag is string glyph && glyph == current;
+            cell.Background = selected ? ChipSelBg : ChipBg;
+            cell.BorderBrush = selected ? ChipSelBorder : ChipBorder;
+        }
+    }
+
+    private void SaveUiMemory() => _settingsStore.Save(_settings);
+
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+
     {
         if (_pipeline is { IsRunning: true })
         {
@@ -490,6 +748,7 @@ public partial class MainWindow : Window
         _overlay?.Hide();
         BuildCore();
         ApplySettingsToUi();
+        ApplyUiLayout();
         if (wasRunning)
         {
             _pipeline?.Start();
@@ -603,6 +862,7 @@ public partial class MainWindow : Window
         var reading = _lastReading;
         RecLeftText.Text = FormatReading("左", reading?.LeftValue, reading?.LeftEmptyCount, snapshot.LeftSeconds);
         RecRightText.Text = FormatReading("右", reading?.RightValue, reading?.RightEmptyCount, snapshot.RightSeconds);
+        RecMetaText.Text = $"稳定 {_settings.StableFrames} 帧 · 推理 {_inferenceFps:0.0}/s · 置信 {_settings.ConfidenceThreshold:0.##}";
         _overlay?.Update(snapshot);
     }
 

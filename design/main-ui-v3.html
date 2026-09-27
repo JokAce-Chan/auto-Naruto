@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>替身计时器 · 主界面验收稿 v3</title>
+<style>
+  :root{
+    --bg:#0E1013; --bar:#16191E; --title:#1A1D23;
+    --card:#1B1F26; --card2:#171B21; --line:#2A2F38; --line2:#2A3B52;
+    --fg:#E6E8EC; --body:#9AA3B0; --muted:#6B7480;
+    --accent:#2E6FD0; --green:#2ECC71; --red:#FF5C5C; --yellow:#E6A23C;
+    --preview:#0D1B2E; --blue:#7EC3FF;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;padding:28px 20px 60px;background:#07080A;
+    font-family:"Microsoft YaHei UI","Microsoft YaHei",Segoe UI,sans-serif;color:var(--fg);
+    display:flex;flex-direction:column;align-items:center;}
+  .pagehint{width:1180px;margin:0 0 14px;color:#5F6A78;font-size:12px;line-height:1.9;}
+  .pagehint b{color:#8FA3BC;font-weight:600;}
+  .pagehint code{background:#1E232B;border:1px solid #2A2F38;border-radius:4px;padding:1px 5px;color:#A8B6C6;font-size:11px;}
+
+  .app{width:1180px;height:720px;background:var(--bg);border:1px solid #23272E;border-radius:10px;
+    overflow:hidden;display:flex;flex-direction:column;box-shadow:0 18px 60px rgba(0,0,0,.6);}
+
+  /* 标题栏 */
+  .titlebar{height:38px;flex:0 0 auto;background:var(--title);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;padding:0 14px;gap:10px;}
+  .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);display:flex;
+    align-items:center;justify-content:center;font-size:12px;color:#fff;}
+  .title{font-size:14px;font-weight:600;}
+  .ver{font-size:11px;color:var(--muted);}
+
+  /* 工具栏 */
+  .toolbar{flex:0 0 auto;background:var(--bar);border-bottom:1px solid var(--line);
+    padding:8px 14px;display:flex;align-items:center;gap:10px;}
+  .tgroup{display:flex;align-items:center;gap:8px;}
+  .tgroup.right{margin-left:auto;}
+  .vsep{width:1px;height:20px;background:#2A2F38;margin:0 4px;}
+  .dot{width:9px;height:9px;border-radius:5px;background:var(--green);}
+  .devname{font-size:12px;color:var(--body);}
+  .btn{background:#242933;color:#DDE2EA;border:1px solid #343B47;border-radius:6px;
+    padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  .btn:hover{background:#2C333F;}
+  .combo{background:#F2F4F7;color:#000;border:1px solid #8A93A0;border-radius:6px;height:26px;
+    padding:0 8px;font-size:12px;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .combo .car{color:#5A6472;font-size:10px;}
+  .w190{width:190px;} .w110{width:110px;}
+  .sw{width:34px;height:18px;border-radius:9px;background:#3A4048;position:relative;cursor:pointer;flex:0 0 auto;}
+  .sw i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.15s;}
+  .sw.on{background:var(--green);} .sw.on i{left:18px;}
+  .swlabel{font-size:12px;color:var(--body);}
+
+  /* 主体 */
+  main{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;padding:14px;gap:10px;}
+
+  /* 识别状态条（预览正上方） */
+  .statuscard{flex:0 0 auto;background:var(--card);border:1px solid var(--line);
+    border-radius:8px;padding:10px 16px;display:flex;align-items:center;}
+  .side{flex:1 1 0;display:flex;align-items:baseline;gap:12px;min-width:0;}
+  .side .cap{font-size:13px;font-weight:700;flex:0 0 auto;}
+  .side.left .cap{color:var(--green);} .side.right .cap{color:#E03E3E;}
+  .side .val{font-size:12px;color:var(--body);}
+  .side .val b{color:var(--card);background:#C9D1DB;border-radius:4px;padding:1px 6px;font-size:12px;margin:0 2px;}
+  .side .cd{margin-left:auto;font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;
+    letter-spacing:1px;line-height:1;}
+  .side.left .cd{color:var(--green);} .side.right .cd{color:#E03E3E;}
+  .vdiv{width:1px;align-self:stretch;background:#2A2F38;margin:0 18px;}
+
+  /* 预览 */
+  .preview{flex:1 1 auto;position:relative;border-radius:8px;background:var(--preview);
+    border:1px solid var(--line2);overflow:hidden;min-height:0;}
+  .video{position:absolute;inset:0;
+    background:radial-gradient(120% 70% at 50% 0%, #1B3A5C 0%, #12283F 45%, #0B1828 100%);}
+  .barstrip{position:absolute;left:0;right:0;top:26px;height:74px;}
+  .roi{position:absolute;border:2px dashed;border-radius:2px;}
+  .roi.left{border-color:var(--green);} .roi.right{border-color:#E03E3E;}
+  .roi .tag{position:absolute;left:0;top:-19px;font-size:13px;font-weight:700;white-space:nowrap;}
+  .roi.left .tag{color:#2ECC71;} .roi.right .tag{color:#E03E3E;}
+  .dotm{position:absolute;border:1px solid #FF8C3C;background:rgba(255,140,60,.35);border-radius:1px;}
+  .ph{position:absolute;left:0;right:0;bottom:14px;text-align:center;color:#5F7A99;font-size:12px;}
+
+  /* 状态栏 */
+  .statusbar{flex:0 0 auto;height:30px;background:var(--bar);border-top:1px solid var(--line);
+    display:flex;align-items:center;gap:16px;padding:0 14px;font-size:11px;color:var(--body);}
+  .statusbar .log{margin-left:auto;color:var(--blue);}
+
+  /* 说明 */
+  .legend{width:1180px;margin-top:22px;background:#12151A;border:1px solid #23272E;border-radius:10px;padding:16px 20px;}
+  .legend h3{margin:0 0 10px;font-size:13px;color:#C9D1DB;font-weight:600;}
+  .legend h3 + h3{margin-top:18px;}
+  .legend ol{margin:0;padding-left:20px;color:#8A93A0;font-size:12px;line-height:2;}
+  .legend code{background:#1E232B;border:1px solid #2A2F38;border-radius:4px;padding:1px 5px;color:#A8B6C6;font-size:11px;}
+  .legend .k{color:#E6E8EC;}
+  .legend .q{color:#E6A23C;}
+</style>
+</head>
+<body>
+
+<div class="pagehint">
+  <b>主界面验收稿 v3</b> —— 右侧面板整块取消，识别状态上移到预览正上方，调试并入设置。
+  下方「待确认」列出我拿不准的点，确认后我按此改 XAML，再单独出设置窗口的 HTML。
+</div>
+
+<div class="app">
+
+  <div class="titlebar">
+    <div class="logo">★</div>
+    <div class="title">替身计时器</div>
+    <div class="ver">NaruttoTimer v0.3 · AI 模式（值判定/空豆判定）</div>
+  </div>
+
+  <!-- 工具栏：操作组只剩 区域标注 / 设置 -->
+  <div class="toolbar">
+    <div class="tgroup">
+      <span class="dot"></span>
+      <span class="devname">雷电模拟器 emulator-5554</span>
+      <button class="btn">刷新设备</button>
+      <div class="combo w190"><span>emulator-5554</span><span class="car">▼</span></div>
+      <button class="btn">连接</button>
+      <button class="btn">开始识别</button>
+    </div>
+
+    <div class="vsep"></div>
+
+    <div class="tgroup">
+      <span class="swlabel">实时预览</span>
+      <div class="sw on" data-sw><i></i></div>
+      <span class="swlabel" style="margin-left:8px;">判定方式</span>
+      <div class="combo w110"><span>空豆判定</span><span class="car">▼</span></div>
+    </div>
+
+    <div class="vsep"></div>
+
+    <div class="tgroup right">
+      <button class="btn">区域标注</button>
+      <button class="btn">设置</button>
+    </div>
+  </div>
+
+  <main>
+
+    <!-- 识别状态：预览正上方，横置 -->
+    <div class="statuscard">
+      <div class="side left">
+        <span class="cap">左</span>
+        <span class="val">空豆 <b>0</b> ／ 值 <b>6</b></span>
+        <span class="cd">03.21</span>
+      </div>
+      <div class="vdiv"></div>
+      <div class="side right">
+        <span class="cap">右</span>
+        <span class="val">空豆 <b>4</b> ／ 值 <b>2</b></span>
+        <span class="cd">00.00</span>
+      </div>
+    </div>
+
+    <!-- 预览：占据剩余全部高度 -->
+    <div class="preview">
+      <div class="video"></div>
+
+
+      <div class="barstrip">
+        <div class="roi left" style="left:8.03%;top:44px;width:13.44%;height:96px;">
+          <span class="tag">左 空豆 0（值 6）</span>
+          <div class="dotm" style="left:4%;top:18%;width:20%;height:34%;"></div>
+          <div class="dotm" style="left:27%;top:18%;width:20%;height:34%;"></div>
+          <div class="dotm" style="left:50%;top:18%;width:20%;height:34%;"></div>
+          <div class="dotm" style="left:73%;top:18%;width:20%;height:34%;"></div>
+        </div>
+        <div class="roi right" style="left:77.16%;top:44px;width:13.44%;height:96px;">
+          <span class="tag">右 空豆 4（值 2）</span>
+          <div class="dotm" style="left:3%;top:18%;width:13%;height:34%;"></div>
+          <div class="dotm" style="left:19%;top:18%;width:13%;height:34%;"></div>
+          <div class="dotm" style="left:35%;top:18%;width:13%;height:34%;"></div>
+          <div class="dotm" style="left:51%;top:18%;width:13%;height:34%;"></div>
+        </div>
+      </div>
+
+      <div class="ph">实时预览 · 顶部条带顶对齐</div>
+    </div>
+
+  </main>
+
+  <div class="statusbar">
+    <span>● 识别运行中</span>
+    <span>FPS 30</span>
+    <span>推理 8.0/s</span>
+    <span>视频流 1280×720</span>
+    <span class="log">日志：右值 2→1 触发，置顶框=14.50</span>
+  </div>
+</div>
+
+<div class="legend">
+  <h3>本次改动</h3>
+  <ol>
+    <li><span class="k">识别状态上移</span>：从右侧卡片改为预览正上方的横向状态条，倒计时放大为主视觉（左绿右红）。</li>
+    <li><span class="k">右侧 400px 面板整块取消</span>：窗口宽度由 1320 收窄到 1180，预览横向更宽。</li>
+    <li><span class="k">调试并入设置</span>：顶栏不再有 <code>调试 ▾</code>，导出帧/数据保存移入设置窗口。</li>
+    <li><span class="k">操作组只剩两项</span>：<code>区域标注</code> + <code>设置</code>。</li>
+    <li><span class="k">状态栏不变</span>：FPS / 推理 / 视频流 / 日志仍贴底。</li>
+  </ol>
+
+  <h3>待确认</h3>
+  <ol>
+    <li><span class="q">置顶框的实时调节怎么办？</span>背景透明度 / 数字透明度 / 位置锁定是全搬进设置窗口，还是在状态条右侧留一组迷你快捷控件？（边看置顶框边调手感更好，但会让状态条变长）</li>
+    <li><span class="q">窗口尺寸</span>：1180×720 可以吗？还是保持原宽 1320 让预览更大？</li>
+    <li><span class="q">区域标注按钮位置</span>：我建议顶栏保留（拖拽标注要边看预览边调），确认？</li>
+    <li><span class="q">倒计时字号</span>：状态条里我用了 26px。够醒目吗，还是要再大？</li>
+    <li><span class="q">识别状态是否需要「不稳定/加载中」等瞬时提示</span>显示在状态条上？</li>
+  </ol>
+</div>
+
+<script>
+  document.querySelectorAll('[data-sw]').forEach(function(s){
+    s.addEventListener('click', function(){ s.classList.toggle('on'); });
+  });
+</script>
+</body>
+</html>

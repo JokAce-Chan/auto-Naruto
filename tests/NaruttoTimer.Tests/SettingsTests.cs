@@ -1,3 +1,4 @@
+using NaruttoTimer.App;
 using NaruttoTimer.Data;
 using NaruttoTimer.Rules;
 
@@ -134,5 +135,48 @@ public static class SettingsTests
         Check.True(s.Label != null, "标注配置不应为空");
         Check.True(s.Label.EnergyBar != null, "能量条配置不应为空");
         Check.Equal(null, s.Label.Validate(), "补齐后应校验通过");
+    }
+
+    [Fact]
+    public static void 界面记忆_默认宽300_夹取250_550()
+    {
+        var s = new AppSettings();
+        Check.Equal(300, s.SidePanelWidth, "右侧栏默认宽 300");
+        Check.False(s.SidePanelCollapsed, "默认不折叠");
+        Check.Equal(0, s.GroupOpen.Count, "默认无分组记忆");
+        Check.Equal(0, s.UiIcons.Count, "默认无图标记忆");
+
+        Check.Equal(550, new AppSettings { SidePanelWidth = 900 }.Normalize().SidePanelWidth, "宽度上限 550");
+        Check.Equal(250, new AppSettings { SidePanelWidth = 100 }.Normalize().SidePanelWidth, "宽度下限 250");
+
+        var dirty = new AppSettings { GroupOpen = null!, UiIcons = null! }.Normalize();
+        Check.True(dirty.GroupOpen != null, "分组记忆不应为空");
+        Check.True(dirty.UiIcons != null, "图标记忆不应为空");
+    }
+
+    [Fact]
+    public static void 界面记忆_往返保持()
+    {
+        var path = NewPath();
+        try
+        {
+            var store = new JsonSettingsStore(path);
+            var s = new AppSettings { SidePanelWidth = 420, SidePanelCollapsed = true };
+            s.GroupOpen["timer"] = true;
+            s.GroupOpen["debug"] = false;
+            s.UiIcons[UiIcons.ItemData] = "\uE710";
+            store.Save(s);
+
+            var loaded = store.Load();
+            Check.Equal(420, loaded.SidePanelWidth, "栏宽");
+            Check.True(loaded.SidePanelCollapsed, "折叠态");
+            Check.True(loaded.GroupOpen["timer"], "分组开合");
+            Check.False(loaded.GroupOpen["debug"], "分组开合（关）");
+            Check.Equal("\uE710", loaded.UiIcons[UiIcons.ItemData], "图标记忆");
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 }

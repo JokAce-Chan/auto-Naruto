@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>替身计时器 · 界面重做验收稿 v2</title>
+<style>
+  :root{
+    --bg:#0E1013; --bar:#16191E; --title:#1A1D23;
+    --card:#1B1F26; --line:#2A2F38; --line2:#2A3B52;
+    --fg:#E6E8EC; --body:#9AA3B0; --muted:#6B7480;
+    --accent:#2E6FD0; --green:#2ECC71; --red:#FF5C5C; --yellow:#E6A23C;
+    --preview:#0D1B2E; --blue:#7EC3FF;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; padding:28px 20px 60px; background:#07080A;
+    font-family:"Microsoft YaHei UI","Microsoft YaHei",Segoe UI,sans-serif;
+    color:var(--fg); display:flex; flex-direction:column; align-items:center;
+  }
+  .pagehint{max-width:1320px;width:100%;margin:0 0 14px;color:#5F6A78;font-size:12px;line-height:1.9;}
+  .pagehint b{color:#8FA3BC;font-weight:600;}
+
+  /* ── 应用窗口 ── */
+  .app{
+    width:1320px;height:760px;background:var(--bg);border:1px solid #23272E;
+    border-radius:10px;overflow:hidden;display:flex;flex-direction:column;
+    box-shadow:0 18px 60px rgba(0,0,0,.6);
+  }
+
+  /* 标题栏 */
+  .titlebar{
+    height:38px;flex:0 0 auto;background:var(--title);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;padding:0 14px;gap:10px;
+  }
+  .logo{width:22px;height:22px;border-radius:6px;background:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;}
+  .title{font-size:14px;font-weight:600;}
+  .ver{font-size:11px;color:var(--muted);}
+
+  /* 工具栏 */
+  .toolbar{
+    flex:0 0 auto;background:var(--bar);border-bottom:1px solid var(--line);
+    padding:8px 14px;display:flex;align-items:center;gap:10px;position:relative;
+  }
+  .tgroup{display:flex;align-items:center;gap:8px;}
+  .tgroup.right{margin-left:auto;}
+  .vsep{width:1px;height:20px;background:#2A2F38;margin:0 4px;}
+  .dot{width:9px;height:9px;border-radius:5px;background:var(--yellow);}
+  .devname{font-size:12px;color:var(--body);}
+
+  .btn{
+    background:#242933;color:#DDE2EA;border:1px solid #343B47;border-radius:6px;
+    padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap;
+  }
+  .btn:hover{background:#2C333F;}
+  .btn.ghost{background:transparent;}
+  .btn.caret::after{content:" ▾";color:#8A93A0;}
+
+  .combo{
+    background:#F2F4F7;color:#000;border:1px solid #8A93A0;border-radius:6px;
+    height:26px;padding:0 8px;font-size:12px;font-family:inherit;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+  }
+  .combo .car{color:#5A6472;font-size:10px;}
+  .w190{width:190px;} .w110{width:110px;}
+
+  /* 开关 */
+  .sw{width:34px;height:18px;border-radius:9px;background:#3A4048;position:relative;cursor:pointer;flex:0 0 auto;}
+  .sw i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:.15s;}
+  .sw.on{background:var(--green);}
+  .sw.on i{left:18px;}
+  .swlabel{font-size:12px;color:var(--body);}
+
+  /* 调试浮层 */
+  .popwrap{position:relative;}
+  .pop{
+    position:absolute;top:34px;right:0;min-width:150px;background:#1F242C;
+    border:1px solid #343B47;border-radius:8px;padding:6px;
+    box-shadow:0 12px 30px rgba(0,0,0,.55);display:none;z-index:40;
+  }
+  .pop.open{display:block;}
+  .pop .it{
+    display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;
+    font-size:12px;color:#DDE2EA;cursor:pointer;white-space:nowrap;
+  }
+  .pop .it:hover{background:#2C333F;}
+
+  /* 主体 */
+  main{flex:1 1 auto;display:flex;min-height:0;}
+
+  .preview{
+    flex:1 1 auto;margin:14px;border-radius:8px;background:var(--preview);
+    border:1px solid var(--line2);overflow:hidden;position:relative;
+  }
+  .video{
+    position:absolute;left:0;top:0;width:100%;height:100%;
+    background:
+      radial-gradient(120% 70% at 50% 0%, #1B3A5C 0%, #12283F 45%, #0B1828 100%);
+  }
+  /* 顶部能量条区域 */
+  .barstrip{position:absolute;left:0;right:0;top:26px;height:74px;}
+  .roi{position:absolute;border:2px dashed;border-radius:2px;background:transparent;}
+  .roi.left{border-color:var(--green);}
+  .roi.right{border-color:#E03E3E;}
+  .roi .tag{position:absolute;left:0;top:-19px;font-size:13px;font-weight:700;white-space:nowrap;}
+  .roi.left .tag{color:#2ECC71;}
+  .roi.right .tag{color:#E03E3E;}
+  .dotm{position:absolute;border:1px solid #FF8C3C;background:rgba(255,140,60,.35);border-radius:1px;}
+  .ph{position:absolute;left:0;right:0;bottom:16px;text-align:center;color:#5F7A99;font-size:13px;}
+
+  /* 右侧面板 */
+  .panel{
+    width:400px;flex:0 0 400px;overflow-y:auto;padding:14px 14px 14px 0;
+  }
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:12px;margin-bottom:10px;
+  }
+  .cardtitle{font-size:12px;font-weight:600;color:var(--body);margin-bottom:8px;}
+  .cardbody{font-size:11px;color:var(--body);margin-top:3px;line-height:1.6;}
+
+  /* 折叠卡 */
+  .exp{border:1px solid var(--line);border-radius:8px;background:var(--card);margin-bottom:10px;overflow:hidden;}
+  .exp > .head{
+    display:flex;align-items:center;gap:8px;padding:11px 12px;cursor:pointer;user-select:none;
+  }
+  .exp > .head:hover{background:#20252D;}
+  .chev{
+    width:0;height:0;border-left:5px solid #8A93A0;border-top:4px solid transparent;
+    border-bottom:4px solid transparent;transition:transform .15s;flex:0 0 auto;
+  }
+  .exp.open .chev{transform:rotate(90deg);}
+  .exp > .head .t{font-size:12px;font-weight:600;color:var(--body);}
+  .exp > .body{display:none;padding:0 12px 12px;}
+  .exp.open > .body{display:block;}
+  .sub{padding-top:10px;}
+  .sub + .sub{border-top:1px solid #23272E;margin-top:12px;}
+
+  .row{display:flex;align-items:center;gap:10px;margin-top:10px;}
+  .row .lbl{font-size:11px;color:var(--body);}
+  .slider{width:140px;height:4px;border-radius:2px;background:#3A4048;position:relative;}
+  .slider i{position:absolute;top:-5px;width:14px;height:14px;border-radius:50%;background:#E6E8EC;}
+
+  /* 状态栏 */
+  .statusbar{
+    flex:0 0 auto;height:30px;background:var(--bar);border-top:1px solid var(--line);
+    display:flex;align-items:center;gap:16px;padding:0 14px;font-size:11px;color:var(--body);
+  }
+  .statusbar .log{margin-left:auto;color:var(--blue);}
+
+  /* 说明区 */
+  .legend{
+    width:1320px;margin-top:22px;background:#12151A;border:1px solid #23272E;
+    border-radius:10px;padding:16px 20px;
+  }
+  .legend h3{margin:0 0 10px;font-size:13px;color:#C9D1DB;font-weight:600;}
+  .legend ol{margin:0;padding-left:20px;color:#8A93A0;font-size:12px;line-height:2;}
+  .legend code{background:#1E232B;border:1px solid #2A2F38;border-radius:4px;padding:1px 5px;color:#A8B6C6;font-size:11px;}
+  .legend .k{color:#E6E8EC;}
+</style>
+</head>
+<body>
+
+<div class="pagehint">
+  <b>验收稿 v2</b> —— 静态可点，用于确认分组与折叠方式。所有折叠头、开关、<code>调试 ▾</code> 均可点击。样式仿真 WPF 现有配色，非最终像素稿。
+</div>
+
+<div class="app">
+
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="logo">★</div>
+    <div class="title">替身计时器</div>
+    <div class="ver">NaruttoTimer v0.3 · AI 模式（值判定/空豆判定）</div>
+  </div>
+
+  <!-- 工具栏（总设置栏） -->
+  <div class="toolbar">
+    <!-- 分组 1：设备 -->
+    <div class="tgroup">
+      <span class="dot"></span>
+      <span class="devname">雷电模拟器 emulator-5554</span>
+      <button class="btn">刷新设备</button>
+      <div class="combo w190"><span>emulator-5554</span><span class="car">▼</span></div>
+      <button class="btn">连接</button>
+      <button class="btn">开始识别</button>
+    </div>
+
+    <div class="vsep"></div>
+
+    <!-- 分组 2：视图 / 判定 -->
+    <div class="tgroup">
+      <span class="swlabel">实时预览</span>
+      <div class="sw on" data-sw><i></i></div>
+      <span class="swlabel" style="margin-left:8px;">判定方式</span>
+      <div class="combo w110"><span>空豆判定</span><span class="car">▼</span></div>
+    </div>
+
+    <div class="vsep"></div>
+
+    <!-- 分组 3：操作 -->
+    <div class="tgroup right">
+      <button class="btn">区域标注</button>
+      <button class="btn">设置</button>
+      <div class="popwrap">
+        <button class="btn caret" data-pop>调试</button>
+        <div class="pop" id="debugPop">
+          <div class="it">🖼 导出当前帧</div>
+          <div class="it">💾 数据保存 / 导出</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主体 -->
+  <main>
+    <!-- 预览区 -->
+    <div class="preview">
+      <div class="video"></div>
+
+      <div class="barstrip">
+        <!-- 左能量条 -->
+        <div class="roi left" style="left:8.03%;top:44px;width:13.44%;height:96px;">
+          <span class="tag">左 空豆 0（值 6）</span>
+          <div class="dotm" style="left:4%;top:18%;width:20%;height:34%;"></div>
+          <div class="dotm" style="left:27%;top:18%;width:20%;height:34%;"></div>
+          <div class="dotm" style="left:50%;top:18%;width:20%;height:34%;"></div>
+          <div class="dotm" style="left:73%;top:18%;width:20%;height:34%;"></div>
+        </div>
+        <!-- 右能量条 -->
+        <div class="roi right" style="left:77.16%;top:44px;width:13.44%;height:96px;">
+          <span class="tag">右 空豆 4（值 2）</span>
+          <div class="dotm" style="left:3%;top:18%;width:13%;height:34%;"></div>
+          <div class="dotm" style="left:19%;top:18%;width:13%;height:34%;"></div>
+          <div class="dotm" style="left:35%;top:18%;width:13%;height:34%;"></div>
+          <div class="dotm" style="left:51%;top:18%;width:13%;height:34%;"></div>
+        </div>
+      </div>
+
+      <div class="ph">实时预览 · 顶部条带顶对齐</div>
+    </div>
+
+    <!-- 右侧面板 -->
+    <div class="panel">
+
+      <!-- 常驻：识别状态 -->
+      <div class="card">
+        <div class="cardtitle">识别状态</div>
+        <div class="cardbody">左　空豆 0（值 6）· 倒计时 3.21</div>
+        <div class="cardbody">右　空豆 4（值 2）· 倒计时 0.00</div>
+      </div>
+
+      <!-- 折叠组 1：置顶框设置（默认折叠） -->
+      <div class="exp" data-exp>
+        <div class="head"><span class="chev"></span><span class="t">置顶框设置</span></div>
+        <div class="body">
+          <div class="row">
+            <span class="lbl">位置锁定</span>
+            <div class="sw" data-sw><i></i></div>
+            <span class="lbl">未锁定</span>
+          </div>
+          <div class="row">
+            <span class="lbl">背景透明度</span>
+            <div class="slider"><i style="left:58px;"></i></div>
+            <span class="lbl">55%</span>
+          </div>
+          <div class="row">
+            <span class="lbl">数字透明度</span>
+            <div class="slider"><i style="left:118px;"></i></div>
+            <span class="lbl">100%</span>
+          </div>
+          <div class="cardbody" style="margin-top:12px;">
+            背景与数字透明度独立设置；显示格式：0.00　0.00（无括号 · 随框缩放）
+          </div>
+        </div>
+      </div>
+
+      <!-- 折叠组 2：识别与参数 / 区域标注 / 触发规则说明（默认展开） -->
+      <div class="exp open" data-exp>
+        <div class="head"><span class="chev"></span><span class="t">识别与参数</span></div>
+        <div class="body">
+          <div class="sub">
+            <div class="cardbody">判定方式：空豆判定（AI 模式 · 值上限 6）</div>
+            <div class="cardbody">倒计时 14.5s ｜ 稳定 3 帧 ｜ 推理间隔 125ms ｜ 置信度 0.7 ｜ NMS 0.25</div>
+            <div class="cardbody">模型：best.onnx（YOLOv8 · 单类空豆 · 输入 128×128）</div>
+          </div>
+
+          <div class="sub">
+            <div class="cardtitle" style="margin-bottom:4px;">区域标注</div>
+            <div class="cardbody">左能量条：0.080, 0.048 → 0.215, 0.182</div>
+            <div class="cardbody">右能量条：0.772, 0.048 → 0.906, 0.182</div>
+            <div class="cardbody">左右能量条强制同高同步宽（AI 模式垂直拼接推理）；可在预览区直接拖拽调整。</div>
+          </div>
+
+          <div class="sub">
+            <div class="cardtitle" style="margin-bottom:4px;">触发规则说明</div>
+            <div class="cardbody">值 = 6 − 空豆数（AI 模型）；连续 3 帧稳定后才参与判定；值判定看「值恰好减 1」，空豆判定看「空豆恰好加 1」。</div>
+            <div class="cardbody">稳定值恰好「减 1」→ 视为使用替身/技能，该侧倒计时重置为 14.5s。</div>
+            <div class="cardbody">每帧都参与判定；倒计时归零后保持 0.00。</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- 状态栏 -->
+  <div class="statusbar">
+    <span>● 识别运行中</span>
+    <span>FPS 30</span>
+    <span>推理 8.0/s</span>
+    <span>视频流 1280×720</span>
+    <span class="log">日志：右值 2→1 触发，置顶框=14.50</span>
+  </div>
+</div>
+
+<div class="legend">
+  <h3>改动要点</h3>
+  <ol>
+    <li><span class="k">顶栏分三组</span>：设备 → 视图/判定 → 操作，中间加竖线分隔；原右侧散落的四个按钮收敛为 <code>区域标注</code> <code>设置</code> <code>调试 ▾</code>。</li>
+    <li><span class="k">导出帧 / 数据保存 收进「调试」浮层</span>：点 <code>调试 ▾</code> 展开小面板，顶栏高度不变，不挤压主体。</li>
+    <li><span class="k">置顶框设置 折叠</span>：默认收起，一次性配置不必常驻视野。</li>
+    <li><span class="k">识别与参数 / 区域标注 / 触发规则说明 合并为一组折叠</span>：共用「识别与参数」标题，内部三段加分隔线。</li>
+    <li><span class="k">识别状态保持常驻</span>：左右值与倒计时是实时读数，不参与折叠。</li>
+  </ol>
+</div>
+
+<script>
+  // 折叠卡
+  document.querySelectorAll('[data-exp] > .head').forEach(function(h){
+    h.addEventListener('click', function(){ h.parentElement.classList.toggle('open'); });
+  });
+  // 开关
+  document.querySelectorAll('[data-sw]').forEach(function(s){
+    s.addEventListener('click', function(){ s.classList.toggle('on'); });
+  });
+  // 调试浮层
+  var pop = document.getElementById('debugPop');
+  document.querySelectorAll('[data-pop]').forEach(function(b){
+    b.addEventListener('click', function(e){ e.stopPropagation(); pop.classList.toggle('open'); });
+  });
+  document.addEventListener('click', function(){ pop.classList.remove('open'); });
+</script>
+</body>
+</html>
