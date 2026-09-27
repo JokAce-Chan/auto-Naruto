@@ -29,12 +29,17 @@ public partial class MainWindow : Window
     private readonly JsonSettingsStore _settingsStore;
     private readonly DataStore _dataStore;
     private readonly DispatcherTimer _uiTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
+    private readonly DispatcherTimer _arenaTrackerTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
 
     private AppSettings _settings;
     private ScreenRecordCaptureSource? _capture;
     private PipelineController? _pipeline;
     private EnergyRecognizer? _recognizer;
     private OverlayWindow? _overlay;
+    private ArenaOverlayWindow? _arenaOverlay;
+    private IntPtr _arenaRenderHandle;
+    private bool _suppressArenaUi;
+    private bool _arenaUiReady;
     private CapturedFrame? _lastFrame;
     private EnergyReading? _lastReading;
     private LabelImageConfig _editDraft = LabelImageConfig.CreateDefault();
@@ -119,20 +124,25 @@ public partial class MainWindow : Window
             _overlay?.SetTextOpacity((int)TextOpacitySlider.Value);
         };
         _uiTimer.Tick += (_, _) => UiTick();
+        _arenaTrackerTimer.Tick += (_, _) => UpdateArenaOverlay();
 
         PreviewToggle.IsChecked = true;
         UpdatePreviewVisibility();
         InitDeviceCombo();
+        _arenaUiReady = true;
+        StartArenaTrackingIfEnabled();
     }
 
     /// <summary>关闭主窗口时收尾：停识别/采集（否则 adb screenrecord 子进程会残留，最长占用设备 180s）并关闭置顶框。</summary>
     protected override void OnClosed(EventArgs e)
     {
         try { _uiTimer.Stop(); } catch { }
+        try { _arenaTrackerTimer.Stop(); } catch { }
         try { _pipeline?.Stop(); } catch { }
         try { _capture?.StopAsync().Wait(TimeSpan.FromSeconds(2)); } catch { }
         try { _pipeline?.Dispose(); } catch { }
         try { _overlay?.Close(); } catch { }
+        try { _arenaOverlay?.Close(); } catch { }
         base.OnClosed(e);
     }
 
@@ -193,6 +203,7 @@ public partial class MainWindow : Window
         JudgementCombo.SelectedIndex = _settings.Judgement == EnergyJudgement.EmptyCount ? 1 : 0;
         _suppressJudgementEvent = false;
 
+        ApplyArenaSettingsToUi();
         UpdateParameterTexts();
     }
 
@@ -443,6 +454,341 @@ public partial class MainWindow : Window
 
     private void SaveUiMemory() => _settingsStore.Save(_settings);
 
+    // ── 决斗场范围显示：绑定 RenderWindow、参考图和自定义横线 ──
+
+    private void ApplyArenaSettingsToUi()
+    {
+        _suppressArenaUi = true;
+        try
+        {
+            ArenaOverlaySettings arena = _settings.ArenaOverlay;
+            ArenaEnabledToggle.IsChecked = arena.Enabled;
+            ArenaStatusText.Text = arena.Enabled ? "等待定位" : "未启用";
+            ArenaInstanceCombo.SelectedIndex = Math.Clamp(arena.EmulatorInstance, 0, ArenaInstanceCombo.Items.Count - 1);
+            ArenaContentCombo.SelectedIndex = string.Equals(arena.ContentMode, "lines", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+            ArenaImageOpacitySlider.Value = arena.ImageOpacityPercent;
+            ArenaImageOpacityValue.Text = $"{arena.ImageOpacityPercent}%";
+            bool lineEditing = string.Equals(arena.ContentMode, "lines", StringComparison.OrdinalIgnoreCase);
+            ArenaEditToggle.IsEnabled = arena.Enabled && lineEditing;
+            ArenaEditToggle.IsChecked = arena.Enabled && lineEditing && arena.EditMode;
+            ArenaEditValue.Text = ArenaEditToggle.IsChecked == true ? "可拖动横线" : "鼠标穿透";
+            ArenaRefreshLineList();
+        }
+        finally
+        {
+            _suppressArenaUi = false;
+        }
+    }
+
+    private void ArenaRefreshLineList(int? selectedIndex = null)
+    {
+        int targetIndex = selectedIndex ?? ArenaLinesList.SelectedIndex;
+        bool previous = _suppressArenaUi;
+        _suppressArenaUi = true;
+        try
+        {
+            ArenaLinesList.ItemsSource = null;
+            ArenaLinesList.ItemsSource = _settings.ArenaOverlay.Lines;
+            if (_settings.ArenaOverlay.Lines.Count > 0)
+            {
+                ArenaLinesList.SelectedIndex = Math.Clamp(targetIndex, 0, _settings.ArenaOverlay.Lines.Count - 1);
+            }
+            ApplyArenaSelectedLineToUi();
+        }
+        finally
+        {
+            _suppressArenaUi = previous;
+        }
+    }
+
+    private ArenaRangeLine? SelectedArenaLine()
+    {
+        int index = ArenaLinesList.SelectedIndex;
+        return index >= 0 && index < _settings.ArenaOverlay.Lines.Count
+            ? _settings.ArenaOverlay.Lines[index]
+            : null;
+    }
+
+    private void ApplyArenaSelectedLineToUi()
+    {
+        ArenaRangeLine? line = SelectedArenaLine();
+        ArenaLineEnabledToggle.IsEnabled = line != null;
+        ArenaLineYSlider.IsEnabled = line != null;
+        ArenaLineThicknessSlider.IsEnabled = line != null;
+        ArenaLineOpacitySlider.IsEnabled = line != null;
+        ArenaLineColorBox.IsEnabled = line != null;
+        if (line == null) return;
+
+        ArenaLineEnabledToggle.IsChecked = line.Enabled;
+        ArenaLineYSlider.Value = Math.Clamp(line.Y * 100.0, 0, 100);
+        ArenaLineYValue.Text = $"{line.Y * 100.0:0.#}%";
+        ArenaLineThicknessSlider.Value = Math.Clamp(line.Thickness, 1, 20);
+        ArenaLineThicknessValue.Text = $"{line.Thickness:0.#} px";
+        ArenaLineOpacitySlider.Value = line.OpacityPercent;
+        ArenaLineOpacityValue.Text = $"{line.OpacityPercent}%";
+        ArenaLineColorBox.Text = line.Color;
+    }
+
+    private ArenaOverlayWindow EnsureArenaOverlay()
+    {
+        if (_arenaOverlay != null) return _arenaOverlay;
+        _arenaOverlay = new ArenaOverlayWindow();
+        _arenaOverlay.LineChanged += ArenaOverlay_LineChanged;
+        _arenaOverlay.LineEditCompleted += ArenaOverlay_LineEditCompleted;
+        ApplyArenaConfigurationToOverlay(_arenaOverlay);
+        return _arenaOverlay;
+    }
+
+    private void ApplyArenaConfigurationToOverlay(ArenaOverlayWindow overlay)
+    {
+        ArenaOverlaySettings arena = _settings.ArenaOverlay;
+        overlay.SetSettings(arena);
+        overlay.SetReferenceImage(ArenaReferenceImagePath());
+        overlay.SetEditMode(arena.Enabled && arena.EditMode && string.Equals(arena.ContentMode, "lines", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string ArenaReferenceImagePath()
+    {
+        return Path.Combine(AppContext.BaseDirectory, "assets", "arena", "X轴范围显示.png");
+    }
+
+    private void StartArenaTrackingIfEnabled()
+    {
+        if (!_settings.ArenaOverlay.Enabled)
+        {
+            _arenaTrackerTimer.Stop();
+            _arenaOverlay?.HideOverlay();
+            return;
+        }
+        EnsureArenaOverlay();
+        _arenaTrackerTimer.Start();
+        UpdateArenaOverlay();
+    }
+
+    private void UpdateArenaOverlay()
+    {
+        if (!_settings.ArenaOverlay.Enabled)
+        {
+            _arenaOverlay?.HideOverlay();
+            return;
+        }
+
+        ArenaOverlayWindow overlay = EnsureArenaOverlay();
+        EmulatorWindowBounds bounds = default;
+        bool found = _arenaRenderHandle != IntPtr.Zero && EmulatorWindowTracker.TryGetBounds(_arenaRenderHandle, out bounds);
+        if (!found)
+        {
+            _arenaRenderHandle = IntPtr.Zero;
+            found = EmulatorWindowTracker.TryFindRenderWindow(
+                _settings.ArenaOverlay.EmulatorInstance,
+                string.IsNullOrWhiteSpace(_settings.AdbPath) ? null : _settings.AdbPath,
+                out bounds);
+        }
+
+        if (!found)
+        {
+            ArenaStatusText.Text = $"实例 {_settings.ArenaOverlay.EmulatorInstance} 未运行";
+            overlay.HideOverlay();
+            return;
+        }
+
+        _arenaRenderHandle = bounds.Handle;
+        overlay.SetBounds(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+        overlay.ShowOverlay();
+        ArenaStatusText.Text = $"已绑定 {bounds.Width}×{bounds.Height}";
+    }
+
+    private void ArenaOverlay_LineChanged(object? sender, ArenaLineChangedEventArgs e)
+    {
+        ArenaRangeLine? line = _settings.ArenaOverlay.Lines.FirstOrDefault(item => item.Id == e.LineId);
+        if (line == null) return;
+        bool previous = _suppressArenaUi;
+        _suppressArenaUi = true;
+        ArenaLineYSlider.Value = Math.Clamp(e.Y * 100.0, 0, 100);
+        ArenaLineYValue.Text = $"{e.Y * 100.0:0.#}%";
+        ArenaLinesList.Items.Refresh();
+        _suppressArenaUi = previous;
+    }
+
+    private void ArenaOverlay_LineEditCompleted(object? sender, EventArgs e)
+    {
+        SaveArenaSettings();
+        Log("决斗场横线位置已更新");
+    }
+
+    private void SaveArenaSettings()
+    {
+        _settings.ArenaOverlay.Normalize();
+        _settingsStore.Save(_settings);
+    }
+
+    private void ArenaEnabledToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_arenaUiReady || _suppressArenaUi) return;
+        _settings.ArenaOverlay.Enabled = ArenaEnabledToggle.IsChecked == true;
+        if (!_settings.ArenaOverlay.Enabled)
+        {
+            _settings.ArenaOverlay.EditMode = false;
+            ArenaEditToggle.IsChecked = false;
+            ArenaEditValue.Text = "鼠标穿透";
+            _arenaRenderHandle = IntPtr.Zero;
+            ArenaStatusText.Text = "未启用";
+        }
+        ApplyArenaSettingsToUi();
+        ApplyArenaConfigurationToOverlay(EnsureArenaOverlay());
+        SaveArenaSettings();
+        StartArenaTrackingIfEnabled();
+        Log(_settings.ArenaOverlay.Enabled ? "决斗场范围覆盖层已启用" : "决斗场范围覆盖层已关闭");
+    }
+
+    private void ArenaInstanceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_arenaUiReady || _suppressArenaUi || ArenaInstanceCombo.SelectedIndex < 0) return;
+        _settings.ArenaOverlay.EmulatorInstance = ArenaInstanceCombo.SelectedIndex;
+        _arenaRenderHandle = IntPtr.Zero;
+        SaveArenaSettings();
+        UpdateArenaOverlay();
+    }
+
+    private void ArenaContentCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_arenaUiReady || _suppressArenaUi || ArenaContentCombo.SelectedIndex < 0) return;
+        _settings.ArenaOverlay.ContentMode = ArenaContentCombo.SelectedIndex == 1 ? "lines" : "image";
+        if (!string.Equals(_settings.ArenaOverlay.ContentMode, "lines", StringComparison.OrdinalIgnoreCase))
+            _settings.ArenaOverlay.EditMode = false;
+        ApplyArenaSettingsToUi();
+        ApplyArenaConfigurationToOverlay(EnsureArenaOverlay());
+        SaveArenaSettings();
+    }
+
+    private void ArenaImageOpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_arenaUiReady || _suppressArenaUi) return;
+        _settings.ArenaOverlay.ImageOpacityPercent = (int)Math.Round(e.NewValue);
+        ArenaImageOpacityValue.Text = $"{_settings.ArenaOverlay.ImageOpacityPercent}%";
+        _arenaOverlay?.UpdateSettings();
+        SaveArenaSettings();
+    }
+
+    private void ArenaEditToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_arenaUiReady || _suppressArenaUi) return;
+        bool editing = ArenaEditToggle.IsChecked == true;
+        _settings.ArenaOverlay.EditMode = editing;
+        ArenaEditValue.Text = editing ? "可拖动横线" : "鼠标穿透";
+        _arenaOverlay?.SetEditMode(editing);
+        SaveArenaSettings();
+    }
+
+    private void ArenaLinesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressArenaUi) return;
+        ApplyArenaSelectedLineToUi();
+    }
+
+    private void ArenaAddLine_Click(object sender, RoutedEventArgs e)
+    {
+        var line = new ArenaRangeLine
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = $"横线 {_settings.ArenaOverlay.Lines.Count + 1}",
+            Y = 0.5,
+        };
+        _settings.ArenaOverlay.Lines.Add(line);
+        ArenaRefreshLineList(_settings.ArenaOverlay.Lines.Count - 1);
+        _arenaOverlay?.UpdateSettings();
+        SaveArenaSettings();
+    }
+
+    private void ArenaDuplicateLine_Click(object sender, RoutedEventArgs e)
+    {
+        ArenaRangeLine? source = SelectedArenaLine();
+        if (source == null) return;
+        var copy = new ArenaRangeLine
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = source.Name + " 副本",
+            Enabled = source.Enabled,
+            Y = Math.Clamp(source.Y + 0.03, 0, 1),
+            Thickness = source.Thickness,
+            OpacityPercent = source.OpacityPercent,
+            Color = source.Color,
+        };
+        int index = ArenaLinesList.SelectedIndex + 1;
+        _settings.ArenaOverlay.Lines.Insert(index, copy);
+        ArenaRefreshLineList(index);
+        _arenaOverlay?.UpdateSettings();
+        SaveArenaSettings();
+    }
+
+    private void ArenaDeleteLine_Click(object sender, RoutedEventArgs e)
+    {
+        int index = ArenaLinesList.SelectedIndex;
+        if (index < 0 || _settings.ArenaOverlay.Lines.Count <= 1) return;
+        _settings.ArenaOverlay.Lines.RemoveAt(index);
+        ArenaRefreshLineList(Math.Min(index, _settings.ArenaOverlay.Lines.Count - 1));
+        _arenaOverlay?.UpdateSettings();
+        SaveArenaSettings();
+    }
+
+    private void ArenaLineEnabledToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (_suppressArenaUi) return;
+        ArenaRangeLine? line = SelectedArenaLine();
+        if (line == null) return;
+        line.Enabled = ArenaLineEnabledToggle.IsChecked == true;
+        _arenaOverlay?.UpdateSettings();
+        SaveArenaSettings();
+    }
+
+    private void ArenaLineYSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressArenaUi) return;
+        ArenaRangeLine? line = SelectedArenaLine();
+        if (line == null) return;
+        line.Y = Math.Clamp(e.NewValue / 100.0, 0, 1);
+        ArenaLineYValue.Text = $"{line.Y * 100.0:0.#}%";
+        ArenaLinesList.Items.Refresh();
+        _arenaOverlay?.UpdateSettings();
+        SaveArenaSettings();
+    }
+
+    private void ArenaLineThicknessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressArenaUi) return;
+        ArenaRangeLine? line = SelectedArenaLine();
+        if (line == null) return;
+        line.Thickness = Math.Clamp(e.NewValue, 1, 50);
+        ArenaLineThicknessValue.Text = $"{line.Thickness:0.#} px";
+        _arenaOverlay?.UpdateSettings();
+        SaveArenaSettings();
+    }
+
+    private void ArenaLineOpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_suppressArenaUi) return;
+        ArenaRangeLine? line = SelectedArenaLine();
+        if (line == null) return;
+        line.OpacityPercent = (int)Math.Round(e.NewValue);
+        ArenaLineOpacityValue.Text = $"{line.OpacityPercent}%";
+        _arenaOverlay?.UpdateSettings();
+        SaveArenaSettings();
+    }
+
+    private void ArenaLineColorBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_suppressArenaUi) return;
+        ArenaRangeLine? line = SelectedArenaLine();
+        if (line == null) return;
+        string value = ArenaLineColorBox.Text.Trim();
+        if (value.Length == 7 && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit))
+            line.Color = value.ToUpperInvariant();
+        else
+            ArenaLineColorBox.Text = line.Color;
+        _arenaOverlay?.UpdateSettings();
+        SaveArenaSettings();
+    }
+
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
 
     {
@@ -456,9 +802,11 @@ public partial class MainWindow : Window
             }
         }
         _uiTimer.Stop();
+        _arenaTrackerTimer.Stop();
         _pipeline?.Dispose();
         _recognizer?.Dispose();
         _overlay?.Hide();
+        _arenaOverlay?.HideOverlay();
         _settingsStore.Save(_settings);
         base.OnClosing(e);
     }

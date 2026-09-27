@@ -228,7 +228,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <!-- ══ 组② 决斗场范围显示（占位） ══ -->
+                                <!-- ══ 组② 决斗场范围显示（绑定雷电 RenderWindow） ══ -->
                                 <Border Style="{StaticResource SideGroup}">
                                     <StackPanel>
                                         <ToggleButton x:Name="HeadArena" Tag="arena" Click="GroupHead_Click" Style="{StaticResource SideGroupHeader}">
@@ -255,19 +255,32 @@
                                                         <TextBlock x:Name="GlyphItemScope" Style="{StaticResource SideGlyph}" Text="&#xE7B3;"/>
                                                         <TextBlock Text="范围显示" Style="{StaticResource SideItemLabel}"/>
                                                     </StackPanel>
-                                                    <StackPanel Margin="26,4,0,0" IsEnabled="False" Opacity="0.5">
+                                                    <StackPanel Margin="26,4,0,0">
                                                         <StackPanel Orientation="Horizontal">
-                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="显示范围线"/>
-                                                            <ToggleButton Width="34" Height="18" Margin="10,0,0,0"/>
-                                                            <TextBlock Style="{StaticResource CardBody}" Text="关闭" Margin="10,0,0,0"/>
+                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="启用覆盖层"/>
+                                                            <ToggleButton x:Name="ArenaEnabledToggle" Width="34" Height="18" Margin="10,0,0,0" Checked="ArenaEnabledToggle_Click" Unchecked="ArenaEnabledToggle_Click"/>
+                                                            <TextBlock x:Name="ArenaStatusText" Style="{StaticResource CardBody}" Margin="10,0,0,0" Text="未启用"/>
                                                         </StackPanel>
                                                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="显示模式"/>
-                                                            <ComboBox Width="110" Height="24" Margin="10,0,0,0" VerticalAlignment="Center"
+                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="雷电实例"/>
+                                                            <ComboBox x:Name="ArenaInstanceCombo" Width="72" Height="24" Margin="10,0,0,0" VerticalAlignment="Center"
                                                                       Background="#F2F4F7" Foreground="#000000" BorderBrush="#8A93A0"
-                                                                      ItemContainerStyle="{StaticResource LightComboItem}" SelectedIndex="0">
-                                                                <ComboBoxItem>X 轴范围</ComboBoxItem>
-                                                                <ComboBoxItem>Y 轴范围</ComboBoxItem>
+                                                                      ItemContainerStyle="{StaticResource LightComboItem}" SelectionChanged="ArenaInstanceCombo_SelectionChanged">
+                                                                <ComboBoxItem Content="0"/>
+                                                                <ComboBoxItem Content="1"/>
+                                                                <ComboBoxItem Content="2"/>
+                                                                <ComboBoxItem Content="3"/>
+                                                                <ComboBoxItem Content="4"/>
+                                                                <ComboBoxItem Content="5"/>
+                                                            </ComboBox>
+                                                        </StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="内容模式"/>
+                                                            <ComboBox x:Name="ArenaContentCombo" Width="112" Height="24" Margin="10,0,0,0" VerticalAlignment="Center"
+                                                                      Background="#F2F4F7" Foreground="#000000" BorderBrush="#8A93A0"
+                                                                      ItemContainerStyle="{StaticResource LightComboItem}" SelectionChanged="ArenaContentCombo_SelectionChanged">
+                                                                <ComboBoxItem Content="参考图"/>
+                                                                <ComboBoxItem Content="自定义横线"/>
                                                             </ComboBox>
                                                         </StackPanel>
                                                         <Grid Margin="0,8,0,0">
@@ -279,19 +292,76 @@
                                                                 <ColumnDefinition Width="*"/>
                                                                 <ColumnDefinition Width="Auto"/>
                                                             </Grid.ColumnDefinitions>
-                                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBody}" Margin="0" Text="范围线透明度"/>
-                                                            <TextBlock Grid.Row="0" Grid.Column="1" Style="{StaticResource CardBody}" Margin="0" Foreground="#C9D1DB" Text="60%"/>
-                                                            <Slider Grid.Row="1" Grid.ColumnSpan="2" Minimum="0" Maximum="100" Value="60" Margin="0,4,0,0" VerticalAlignment="Center"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBody}" Margin="0" Text="参考图透明度"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="ArenaImageOpacityValue" Style="{StaticResource CardBody}" Margin="0" Foreground="#C9D1DB" Text="60%"/>
+                                                            <Slider Grid.Row="1" Grid.ColumnSpan="2" x:Name="ArenaImageOpacitySlider" Minimum="0" Maximum="100" Value="60" Margin="0,4,0,0" VerticalAlignment="Center" ValueChanged="ArenaImageOpacitySlider_ValueChanged"/>
                                                         </Grid>
-                                                        <Button Style="{StaticResource WideActionButton}" IsEnabled="False">
-                                                            <StackPanel Orientation="Horizontal">
-                                                                <TextBlock Style="{StaticResource SideGlyph}" Text="&#xE91B;"/>
-                                                                <TextBlock Text="打开范围参考图" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                                                            </StackPanel>
-                                                        </Button>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="编辑横线"/>
+                                                            <ToggleButton x:Name="ArenaEditToggle" Width="34" Height="18" Margin="10,0,0,0" Checked="ArenaEditToggle_Click" Unchecked="ArenaEditToggle_Click"/>
+                                                            <TextBlock x:Name="ArenaEditValue" Style="{StaticResource CardBody}" Margin="10,0,0,0" Text="鼠标穿透"/>
+                                                        </StackPanel>
+                                                        <ListBox x:Name="ArenaLinesList" Height="92" Margin="0,8,0,0" Background="#101318" Foreground="#DDE2EA"
+                                                                 BorderBrush="#343B47" DisplayMemberPath="DisplayName" SelectionChanged="ArenaLinesList_SelectionChanged"/>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                            <Button Content="添加" Style="{StaticResource ToolbarButton}" Click="ArenaAddLine_Click"/>
+                                                            <Button Content="复制" Style="{StaticResource ToolbarButton}" Click="ArenaDuplicateLine_Click"/>
+                                                            <Button Content="删除" Style="{StaticResource ToolbarButton}" Click="ArenaDeleteLine_Click"/>
+                                                        </StackPanel>
+                                                        <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                                                            <TextBlock Style="{StaticResource CardBody}" Margin="0" Text="选中线启用"/>
+                                                            <ToggleButton x:Name="ArenaLineEnabledToggle" Width="34" Height="18" Margin="10,0,0,0" Checked="ArenaLineEnabledToggle_Click" Unchecked="ArenaLineEnabledToggle_Click"/>
+                                                        </StackPanel>
+                                                        <Grid Margin="0,6,0,0">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBody}" Margin="0" Text="Y 轴位置"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="ArenaLineYValue" Style="{StaticResource CardBody}" Margin="0" Foreground="#C9D1DB" Text="50%"/>
+                                                            <Slider Grid.Row="1" Grid.ColumnSpan="2" x:Name="ArenaLineYSlider" Minimum="0" Maximum="100" Value="50" Margin="0,4,0,0" ValueChanged="ArenaLineYSlider_ValueChanged"/>
+                                                        </Grid>
+                                                        <Grid Margin="0,6,0,0">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBody}" Margin="0" Text="线宽"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="ArenaLineThicknessValue" Style="{StaticResource CardBody}" Margin="0" Foreground="#C9D1DB" Text="3 px"/>
+                                                            <Slider Grid.Row="1" Grid.ColumnSpan="2" x:Name="ArenaLineThicknessSlider" Minimum="1" Maximum="20" Value="3" Margin="0,4,0,0" ValueChanged="ArenaLineThicknessSlider_ValueChanged"/>
+                                                        </Grid>
+                                                        <Grid Margin="0,6,0,0">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto"/>
+                                                                <RowDefinition Height="Auto"/>
+                                                            </Grid.RowDefinitions>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource CardBody}" Margin="0" Text="不透明度"/>
+                                                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="ArenaLineOpacityValue" Style="{StaticResource CardBody}" Margin="0" Foreground="#C9D1DB" Text="60%"/>
+                                                            <Slider Grid.Row="1" Grid.ColumnSpan="2" x:Name="ArenaLineOpacitySlider" Minimum="0" Maximum="100" Value="60" Margin="0,4,0,0" ValueChanged="ArenaLineOpacitySlider_ValueChanged"/>
+                                                        </Grid>
+                                                        <Grid Margin="0,6,0,0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Grid.Column="0" Style="{StaticResource CardBody}" Margin="0" Text="线色"/>
+                                                            <TextBox Grid.Column="1" x:Name="ArenaLineColorBox" Height="24" Margin="8,0,0,0" Background="#F2F4F7" Foreground="#000000" BorderBrush="#8A93A0" Text="#FFE65A" LostFocus="ArenaLineColorBox_LostFocus"/>
+                                                        </Grid>
+                                                        <TextBlock x:Name="ArenaHintText" Style="{StaticResource CardBody}" Foreground="#8A6D3B" Margin="0,8,0,0"
+                                                                   Text="非编辑模式鼠标穿透；编辑模式下可直接拖动横线。"/>
                                                     </StackPanel>
-                                                    <TextBlock Style="{StaticResource CardBody}" Foreground="#8A6D3B" Margin="26,8,0,0"
-                                                               Text="※ 本组内容保持占位，待你给出实际条目后再接入，控件暂不可用。"/>
                                                 </StackPanel>
                                             </Border>
 

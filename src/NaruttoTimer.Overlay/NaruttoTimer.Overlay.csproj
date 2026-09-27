@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NaruttoTimer.Rules\NaruttoTimer.Rules.csproj" />
+    <ProjectReference Include="..\NaruttoTimer.Data\NaruttoTimer.Data.csproj" />
   </ItemGroup>
 
 </Project>

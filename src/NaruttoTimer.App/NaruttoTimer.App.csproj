@@ -8,8 +8,15 @@
     <ProjectReference Include="..\NaruttoTimer.Data\NaruttoTimer.Data.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\assets\X轴范围显示.png"
+          Link="assets\arena\X轴范围显示.png"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using NaruttoTimer.Rules;
 
 namespace NaruttoTimer.Data;
@@ -11,6 +12,9 @@ public sealed class AppSettings
     public int VideoWidth { get; set; } = 1280;
     public int VideoHeight { get; set; } = 720;
     public int MaxFps { get; set; } = 30;
+
+    /// <summary>决斗场范围覆盖层设置。</summary>
+    public ArenaOverlaySettings ArenaOverlay { get; set; } = new();
 
     /// <summary>标注配置（左右能量条）。</summary>
     public LabelImageConfig Label { get; set; } = LabelImageConfig.CreateDefault();
@@ -61,6 +65,8 @@ public sealed class AppSettings
         CountdownSeconds = CountdownSeconds <= 0 ? 14.5 : CountdownSeconds;
         StableFrames = StableFrames < 1 ? 1 : StableFrames;
         InferenceIntervalMs = InferenceIntervalMs < 16 ? 16 : InferenceIntervalMs;
+        ArenaOverlay ??= new ArenaOverlaySettings();
+        ArenaOverlay.Normalize();
         Label ??= LabelImageConfig.CreateDefault();
         Label.EnergyBar ??= LabelImageConfig.CreateDefault().EnergyBar;
         SidePanelWidth = Math.Clamp(SidePanelWidth, 250, 550);
@@ -68,6 +74,65 @@ public sealed class AppSettings
         UiIcons ??= new Dictionary<string, string>();
         return this;
     }
+}
+
+public sealed class ArenaOverlaySettings
+{
+    public bool Enabled { get; set; }
+    public int EmulatorInstance { get; set; }
+    public string ContentMode { get; set; } = "image";
+    public int ImageOpacityPercent { get; set; } = 60;
+    public bool EditMode { get; set; }
+    public List<ArenaRangeLine> Lines { get; set; } = ArenaRangeLine.CreateDefaults();
+
+    public ArenaOverlaySettings Normalize()
+    {
+        EmulatorInstance = Math.Clamp(EmulatorInstance, 0, 99);
+        ContentMode = string.Equals(ContentMode?.Trim(), "lines", StringComparison.OrdinalIgnoreCase) ? "lines" : "image";
+        ImageOpacityPercent = Math.Clamp(ImageOpacityPercent, 0, 100);
+        Lines ??= ArenaRangeLine.CreateDefaults();
+        if (Lines.Count == 0) Lines.AddRange(ArenaRangeLine.CreateDefaults());
+        for (int i = 0; i < Lines.Count; i++)
+        {
+            var line = Lines[i] ??= new ArenaRangeLine();
+            line.Id = string.IsNullOrWhiteSpace(line.Id) ? $"line-{i + 1}" : line.Id.Trim();
+            line.Name = string.IsNullOrWhiteSpace(line.Name) ? $"横线 {i + 1}" : line.Name.Trim();
+            line.Y = Math.Clamp(line.Y, 0.0, 1.0);
+            line.Thickness = Math.Clamp(line.Thickness, 1.0, 50.0);
+            line.OpacityPercent = Math.Clamp(line.OpacityPercent, 0, 100);
+            line.Color = NormalizeHexColor(line.Color, "#FFE65A");
+        }
+        return this;
+    }
+
+    private static string NormalizeHexColor(string? value, string fallback)
+    {
+        string candidate = (value ?? "").Trim();
+        if (candidate.Length == 7 && candidate[0] == '#' && candidate.Skip(1).All(Uri.IsHexDigit))
+            return candidate.ToUpperInvariant();
+        return fallback;
+    }
+}
+
+public sealed class ArenaRangeLine
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "横线";
+    public bool Enabled { get; set; } = true;
+    public double Y { get; set; } = 0.5;
+    public double Thickness { get; set; } = 3.0;
+    public int OpacityPercent { get; set; } = 60;
+    public string Color { get; set; } = "#FFE65A";
+
+    [JsonIgnore]
+    public string DisplayName => $"{Name}  ·  {Y * 100.0:0.#}%";
+
+    public static List<ArenaRangeLine> CreateDefaults() =>
+    [
+        new() { Id = "line-1", Name = "横线 1", Y = 0.665 },
+        new() { Id = "line-2", Name = "横线 2", Y = 0.763 },
+        new() { Id = "line-3", Name = "横线 3", Y = 0.861 }
+    ];
 }
 
 /// <summary>数据保存接口：事件日志、配置读写、导出。</summary>
